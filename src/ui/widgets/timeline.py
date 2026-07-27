@@ -131,6 +131,9 @@ class TrimmingSliderWidget(QWidget):
     position_changed = pyqtSignal(int)   # ms
     start_changed = pyqtSignal(int)      # ms
     end_changed = pyqtSignal(int)        # ms
+    region_selected = pyqtSignal(dict)
+    region_rename_requested = pyqtSignal(int, dict)
+    region_delete_requested = pyqtSignal(int, dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -148,6 +151,7 @@ class TrimmingSliderWidget(QWidget):
         self.active_marker = None     # 'start', 'end', 'playhead'
         self.dragging_marker = None
         self.cut_history_regions = []
+        self.selected_region_index = -1
 
     def set_thumbnail_files(self, paths):
         pixmaps = []
@@ -270,7 +274,7 @@ class TrimmingSliderWidget(QWidget):
 
         # 0.5. 컷팅 히스토리 구간 하이라이트 (하위 40% 영역만 밝게 표시, 상단 60%에는 영상제목)
         if self.cut_history_regions and self.duration_ms > 0:
-            for region in self.cut_history_regions:
+            for idx, region in enumerate(self.cut_history_regions):
                 r_start = region.get('start_ms', 0)
                 r_end = region.get('end_ms', 0)
                 r_name = region.get('name', '')
@@ -279,9 +283,14 @@ class TrimmingSliderWidget(QWidget):
                 rx2 = self.ms_to_x(r_end)
                 rw = max(3.0, rx2 - rx1)
                 
-                # 하위 40% 영역 밝게 하이라이트
+                # 하위 40% 영역 하이라이트 (선택 시 주황색/빨간 테두리 강조)
                 highlight_rect = QRectF(rx1, h * 0.6, rw, h * 0.4)
-                painter.fillRect(highlight_rect, QColor(255, 235, 59, 220))
+                if idx == self.selected_region_index:
+                    painter.fillRect(highlight_rect, QColor(255, 152, 0, 240))
+                    painter.setPen(QPen(QColor(255, 59, 48), 2))
+                    painter.drawRect(highlight_rect)
+                else:
+                    painter.fillRect(highlight_rect, QColor(255, 235, 59, 220))
                 
                 # 상단 60% 영역 컷팅 제목 라벨 노출
                 if r_name and rw > 15:
@@ -335,18 +344,49 @@ class TrimmingSliderWidget(QWidget):
             if abs(x - sx) <= 10:
                 self.active_marker = 'start'
                 self.dragging_marker = 'start'
+                self.selected_region_index = -1
             elif abs(x - ex) <= 10:
                 self.active_marker = 'end'
                 self.dragging_marker = 'end'
+                self.selected_region_index = -1
             elif abs(x - px) <= 8:
                 self.active_marker = 'playhead'
                 self.dragging_marker = 'playhead'
+                self.selected_region_index = -1
             else:
-                self.active_marker = 'playhead'
-                self.dragging_marker = 'playhead'
-                new_ms = self.x_to_ms(x)
-                self.position_ms = new_ms
-                self.position_changed.emit(new_ms)
+                # 컷 히스토리 노란색 영역 클릭 여부 검사
+                clicked_region_idx = -1
+                if self.cut_history_regions and self.duration_ms > 0:
+                    for idx, region in enumerate(self.cut_history_regions):
+                        r_start = region.get('start_ms', 0)
+                        r_end = region.get('end_ms', 0)
+                        rx1 = self.ms_to_x(r_start)
+                        rx2 = self.ms_to_x(r_end)
+                        if rx1 <= x <= rx2:
+                            clicked_region_idx = idx
+                            break
+
+                if clicked_region_idx >= 0:
+                    self.selected_region_index = clicked_region_idx
+                    target_region = self.cut_history_regions[clicked_region_idx]
+                    r_start = target_region.get('start_ms', 0)
+                    r_end = target_region.get('end_ms', 0)
+
+                    self.set_start_ms(r_start)
+                    self.set_end_ms(r_end)
+                    self.set_position(r_start)
+
+                    self.start_changed.emit(r_start)
+                    self.end_changed.emit(r_end)
+                    self.position_changed.emit(r_start)
+                    self.region_selected.emit(target_region)
+                else:
+                    self.selected_region_index = -1
+                    self.active_marker = 'playhead'
+                    self.dragging_marker = 'playhead'
+                    new_ms = self.x_to_ms(x)
+                    self.position_ms = new_ms
+                    self.position_changed.emit(new_ms)
             self.setCursor(Qt.CursorShape.SizeHorCursor)
             self.setFocus()
             self.update()
@@ -406,6 +446,15 @@ class TrimmingSliderWidget(QWidget):
         super().leaveEvent(event)
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_F2:
+            if 0 <= self.selected_region_index < len(self.cut_history_regions):
+                self.region_rename_requested.emit(self.selected_region_index, self.cut_history_regions[self.selected_region_index])
+                return
+        elif event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            if 0 <= self.selected_region_index < len(self.cut_history_regions):
+                self.region_delete_requested.emit(self.selected_region_index, self.cut_history_regions[self.selected_region_index])
+                return
+
         step_ms = 1000
         if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             # 1프레임 이동 (FPS 기반 계산)

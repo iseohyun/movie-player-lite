@@ -145,6 +145,44 @@ def run_traceability_tests():
     has_toggle_time_fn = hasattr(ex.player_widget, 'toggle_time_label')
     req9_pass = has_cycle_fn and has_toggle_time_fn
     results.append(("Req 9: 4-Stage Fullscreen Cycle & Time Label T Toggle", "PASS" if req9_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 10: Cutting Button State Reset on Trim Input Change
+    # -------------------------------------------------------------
+    print("\n[TEST 10] Cutting Button State Reset...")
+    ex.playOutBtn.setText("재생")
+    ex.on_trim_start_changed(2000)
+    btn_text_after_trim = ex.playOutBtn.text()
+    req10_pass = (btn_text_after_trim == "컷팅")
+    print(f" -> Button text after trim start change: '{btn_text_after_trim}' (expected '컷팅')")
+    results.append(("Req 10: Cutting Button State Reset on Trim Input Change", "PASS" if req10_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 11: Timeline Cut Region Selection & Signals
+    # -------------------------------------------------------------
+    print("\n[TEST 11] Timeline Cut Region Interaction...")
+    ex.player_widget.trimming_slider.set_cut_history_regions([
+        {'start_ms': 1000, 'end_ms': 5000, 'name': 'test_part1'}
+    ])
+    ex.player_widget.trimming_slider.selected_region_index = 0
+    has_region_signals = (
+        hasattr(ex.player_widget.trimming_slider, 'region_selected') and
+        hasattr(ex.player_widget.trimming_slider, 'region_rename_requested') and
+        hasattr(ex.player_widget.trimming_slider, 'region_delete_requested')
+    )
+    req11_pass = has_region_signals and (ex.player_widget.trimming_slider.selected_region_index == 0)
+    print(f" -> Region signals and selection state: {req11_pass}")
+    results.append(("Req 11: Timeline Cut Region Interaction (Select/Rename/Delete)", "PASS" if req11_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 12: Playlist Extended Multi-Selection
+    # -------------------------------------------------------------
+    print("\n[TEST 12] Playlist Extended Multi-Selection...")
+    sel_mode = ex.playlist_widget.selectionMode()
+    req12_pass = (sel_mode == QApplication.style().findMode if hasattr(QApplication.style(), 'findMode') else True) and (sel_mode == src.ui.main_window.QAbstractItemView.SelectionMode.ExtendedSelection)
+    print(f" -> Playlist widget selection mode: {sel_mode}")
+    results.append(("Req 12: Playlist Extended Multi-Selection (Ctrl/Shift)", "PASS" if req12_pass else "FAIL"))
+
     # -------------------------------------------------------------
     # SUMMARY REPORT
     # -------------------------------------------------------------

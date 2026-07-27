@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QCheckBox, QRadioButton, QButtonGroup, QComboBox, QFrame, QStackedWidget,
     QListWidget, QListWidgetItem, QMenu, QFileDialog, QMessageBox, QInputDialog, QScrollArea,
-    QApplication, QStyledItemDelegate, QStyle
+    QApplication, QStyledItemDelegate, QStyle, QAbstractItemView
 )
 from PyQt6.QtCore import Qt, QStandardPaths, QTimer, QPropertyAnimation, QEasingCurve, QObject, QEvent, QSize
 from PyQt6.QtGui import QIcon, QKeySequence, QKeyEvent, QAction, QColor, QPen
@@ -380,6 +380,9 @@ class VideoCutterApp(QWidget):
 
         self.player_widget.trimming_slider.start_changed.connect(self.on_trim_start_changed)
         self.player_widget.trimming_slider.end_changed.connect(self.on_trim_end_changed)
+        self.player_widget.trimming_slider.region_selected.connect(self.on_timeline_region_selected)
+        self.player_widget.trimming_slider.region_rename_requested.connect(self.on_timeline_region_rename)
+        self.player_widget.trimming_slider.region_delete_requested.connect(self.on_timeline_region_delete)
         self.startInput.textChanged.connect(self.on_start_input_text_changed)
         self.endInput.textChanged.connect(self.on_end_input_text_changed)
 
@@ -411,6 +414,7 @@ class VideoCutterApp(QWidget):
         sidebar_layout.addLayout(sb_header)
 
         self.playlist_widget = CustomPlaylistListWidget()
+        self.playlist_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.playlist_widget.setItemDelegate(PlaylistDelegate(self.playlist_widget))
         self.playlist_widget.setStyleSheet("""
             QListWidget {
@@ -574,12 +578,20 @@ class VideoCutterApp(QWidget):
                 return current_path
         return self.default_dir
 
+    def reset_cut_button_state(self):
+        if hasattr(self, 'playOutBtn') and self.playOutBtn:
+            if self.playOutBtn.text() == "재생":
+                self.playOutBtn.setText("컷팅")
+                self.playOutBtn.setStyleSheet("")
+                self.update_output_play_btn_state()
+
     def on_trim_start_changed(self, ms: int):
         new_str = ms_to_time_str(ms)
         if self.startInput.displayText() != new_str:
             self.startInput.blockSignals(True)
             self.startInput.setText(new_str)
             self.startInput.blockSignals(False)
+        self.reset_cut_button_state()
 
     def on_trim_end_changed(self, ms: int):
         new_str = ms_to_time_str(ms)
@@ -587,16 +599,83 @@ class VideoCutterApp(QWidget):
             self.endInput.blockSignals(True)
             self.endInput.setText(new_str)
             self.endInput.blockSignals(False)
+        self.reset_cut_button_state()
 
     def on_start_input_text_changed(self, txt: str):
         ms = self.startInput.time_to_centiseconds(txt) * 10
         if self.player_widget.trimming_slider.start_ms != ms:
             self.player_widget.trimming_slider.set_start_ms(ms)
+        self.reset_cut_button_state()
 
     def on_end_input_text_changed(self, txt: str):
         ms = self.endInput.time_to_centiseconds(txt) * 10
         if self.player_widget.trimming_slider.end_ms != ms:
             self.player_widget.trimming_slider.set_end_ms(ms)
+        self.reset_cut_button_state()
+
+    def on_timeline_region_selected(self, region: dict):
+        if not region:
+            return
+        name = region.get('name', '')
+        if name:
+            self.nameInput.setText(name)
+        self.reset_cut_button_state()
+
+    def on_timeline_region_rename(self, index: int, region: dict):
+        if not region:
+            return
+        old_name = region.get('name', '')
+        new_name, ok = QInputDialog.getText(
+            self, "편집 영역 이름 수정", "새 저장 파일명을 입력하세요:", text=old_name
+        )
+        if ok and new_name.strip():
+            new_name = new_name.strip()
+            video_in = self.fileInput.text().replace('\\', '/')
+            saved = load_app_data_json("task_history.json")
+            if saved and isinstance(saved, list):
+                s_ms = region.get('start_ms', 0)
+                e_ms = region.get('end_ms', 0)
+                for item in saved:
+                    v_path = item.get('video_in', '').replace('\\', '/')
+                    if v_path == video_in and item.get('start_ms', 0) == s_ms and item.get('end_ms', 0) == e_ms:
+                        item['name'] = new_name
+                save_app_data_json("task_history.json", saved)
+                self.load_task_history()
+
+            self.nameInput.setText(new_name)
+            self.refresh_playlist_colors()
+            self.update_timeline_cut_highlights()
+            self.show_toast(f"편집 영역 이름이 '{new_name}'(으)로 수정되었습니다.")
+
+    def on_timeline_region_delete(self, index: int, region: dict):
+        if not region:
+            return
+        r_name = region.get('name', '')
+        res = QMessageBox.question(
+            self, "편집 영역 삭제", f"'{r_name}' 편집 영역 히스토리를 삭제하시겠습니까?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        if res != QMessageBox.StandardButton.Yes:
+            return
+
+        video_in = self.fileInput.text().replace('\\', '/')
+        saved = load_app_data_json("task_history.json")
+        if saved and isinstance(saved, list):
+            s_ms = region.get('start_ms', 0)
+            e_ms = region.get('end_ms', 0)
+            new_saved = []
+            for item in saved:
+                v_path = item.get('video_in', '').replace('\\', '/')
+                if v_path == video_in and item.get('start_ms', 0) == s_ms and item.get('end_ms', 0) == e_ms:
+                    continue
+                new_saved.append(item)
+            save_app_data_json("task_history.json", new_saved)
+            self.load_task_history()
+
+        self.refresh_playlist_colors()
+        self.update_timeline_cut_highlights()
+        self.show_toast("편집 영역 히스토리가 삭제되었습니다.")
 
     def animate_sidebar(self, widget: QFrame, target_width: int):
         if hasattr(widget, '_anim') and widget._anim:
@@ -681,8 +760,15 @@ class VideoCutterApp(QWidget):
                 self.fileInput.setText(file_path)
 
     def remove_selected_playlist_item(self):
-        item = self.playlist_widget.currentItem()
-        if item:
+        items = self.playlist_widget.selectedItems()
+        if not items:
+            cur = self.playlist_widget.currentItem()
+            if cur:
+                items = [cur]
+        if not items:
+            return
+
+        for item in items:
             file_path = item.data(Qt.ItemDataRole.UserRole)
             if self.player_widget.video_path_cached == file_path or self.fileInput.text() == file_path:
                 self.player_widget.unload_video()
@@ -692,51 +778,64 @@ class VideoCutterApp(QWidget):
             self.playlist_widget.takeItem(row)
             if file_path in self.playlist_files:
                 self.playlist_files.remove(file_path)
-                self.save_playlist_history()
-            self.refresh_playlist_colors()
+
+        self.save_playlist_history()
+        self.refresh_playlist_colors()
 
     def delete_selected_playlist_file_permanently(self):
-        item = self.playlist_widget.currentItem()
-        if not item:
+        items = self.playlist_widget.selectedItems()
+        if not items:
+            cur = self.playlist_widget.currentItem()
+            if cur:
+                items = [cur]
+        if not items:
             return
-        file_path = item.data(Qt.ItemDataRole.UserRole)
-        if not file_path:
+
+        file_paths = [it.data(Qt.ItemDataRole.UserRole) for it in items if it.data(Qt.ItemDataRole.UserRole)]
+        if not file_paths:
             return
-            
-        file_name = os.path.basename(file_path)
-        
+
+        if len(file_paths) == 1:
+            file_name = os.path.basename(file_paths[0])
+            msg = f"'{file_name}' 파일을 디스크에서 완전히 삭제하시겠습니까?\n\n경로: {file_paths[0]}"
+        else:
+            msg = f"선택한 {len(file_paths)}개 파일을 디스크에서 완전히 삭제하시겠습니까?"
+
         res = QMessageBox.question(
             self,
             "파일 물리 삭제 확인",
-            f"'{file_name}' 파일을 디스크에서 완전히 삭제하시겠습니까?\n\n경로: {file_path}",
+            msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
         if res != QMessageBox.StandardButton.Yes:
             return
 
-        # 1. 미디어 플레이어가 해당 파일을 사용 중이면 소유권/핸들 해제
-        if self.player_widget.video_path_cached == file_path or self.fileInput.text() == file_path:
-            self.player_widget.unload_video()
-            self.fileInput.setText("")
+        deleted_count = 0
+        for item in items:
+            file_path = item.data(Qt.ItemDataRole.UserRole)
+            if not file_path:
+                continue
 
-        # 2. 재생목록에서 제거
-        row = self.playlist_widget.row(item)
-        self.playlist_widget.takeItem(row)
-        if file_path in self.playlist_files:
-            self.playlist_files.remove(file_path)
-            self.save_playlist_history()
+            if self.player_widget.video_path_cached == file_path or self.fileInput.text() == file_path:
+                self.player_widget.unload_video()
+                self.fileInput.setText("")
+
+            row = self.playlist_widget.row(item)
+            self.playlist_widget.takeItem(row)
+            if file_path in self.playlist_files:
+                self.playlist_files.remove(file_path)
+
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                    deleted_count += 1
+                except Exception as e:
+                    print(f"Failed to delete {file_path}: {e}")
+
+        self.save_playlist_history()
         self.refresh_playlist_colors()
-
-        # 3. 디스크에서 실제 파일 삭제
-        if os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-                self.show_toast(f"'{file_name}' 파일이 물리적으로 삭제되었습니다.")
-            except Exception as e:
-                QMessageBox.critical(self, "삭제 실패", f"파일을 삭제하지 못했습니다:\n{e}")
-        else:
-            self.show_toast(f"'{file_name}' 목록에서 제거되었습니다.")
+        self.show_toast(f"{len(file_paths)}개 파일 삭제 완료")
 
     def rename_selected_playlist_file(self):
         item = self.playlist_widget.currentItem()

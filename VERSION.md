@@ -1,5 +1,20 @@
 # Movie Player Lite Version History
 
+## [v1.6.0] - 2026-07-27 (Cut Button Auto-Reset, Timeline Cut Region Interactions, Playlist Extended Multi-Selection)
+### Added / Enhanced
+- **Cut Button State Auto-Reset**:
+  - Automatically resets button text from "재생" back to "컷팅" as soon as the user adjusts trimming markers or modifies inputs.
+- **Timeline Cut Region Interactions**:
+  - Click on pastel yellow cut regions on filmstrip timeline to select and load cut boundaries/name.
+  - Press `F2` to rename selected cut region history item.
+  - Press `Del` / `Backspace` to delete selected cut region history item.
+- **Playlist Extended Multi-Selection (`ExtendedSelection`)**:
+  - Support `Ctrl + Click` to toggle individual item selections.
+  - Support `Shift + Click` to select contiguous ranges of items.
+  - Extended multi-deletion for playlist items (`Delete` and `Ctrl + Delete`).
+
+---
+
 ## [v1.5.0] - 2026-07-23 (Full Visual Transform & DWM Screen Integration)
 ### Added / Enhanced
 - **Win32 DWM Screen Integration**:
