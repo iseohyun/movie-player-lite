@@ -1,5 +1,19 @@
 # Movie Player Lite Version History
 
+## [v1.6.1] - 2026-09-06 (FFmpeg Cutting Fix, Playlist Duplicate Prevention, Missing File Removal on F2, Transform Save Fix)
+### Fixed / Enhanced
+- **FFmpeg Lossless Video Cutting Fix**:
+  - Reordered FFmpeg parameters (`-ss` and `-t` after `-i`) and added `-avoid_negative_ts make_zero` to prevent 1KB corrupted file output during lossless MP4 trimming.
+  - Added duration validation (min 0.1s) to prevent invalid cutting calls.
+- **Playlist Duplicate Entry Prevention**:
+  - Normalized all file paths (`os.path.abspath(os.path.normpath)`) with case-insensitive check to prevent duplicate entries in the playlist.
+- **Auto-Removal of Missing Files on F2**:
+  - Pressing `F2` on a non-existent/deleted file automatically removes it from the playlist with an informative toast notice.
+- **Transform Video Save Fix (`Ctrl+S`)**:
+  - Fixed a method indentation bug that prevented rotated or flipped videos from being saved via `Ctrl+S`.
+
+---
+
 ## [v1.6.0] - 2026-07-27 (Cut Button Auto-Reset, Timeline Cut Region Interactions, Playlist Extended Multi-Selection)
 ### Added / Enhanced
 - **Cut Button State Auto-Reset**:

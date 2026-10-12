@@ -735,19 +735,23 @@ class VideoCutterApp(QWidget):
         save_app_data_json("playlist_history.json", self.playlist_files)
 
     def add_file_to_playlist(self, file_path: str, load_immediately=True, save_history=True):
-        file_path = file_path.replace('\\', '/')
-        if file_path and os.path.isfile(file_path):
-            if file_path not in self.playlist_files:
-                self.playlist_files.append(file_path)
-                item = QListWidgetItem(os.path.basename(file_path))
-                item.setToolTip(file_path)
-                item.setData(Qt.ItemDataRole.UserRole, file_path)
+        if not file_path:
+            return
+        norm_path = os.path.abspath(os.path.normpath(file_path)).replace('\\', '/')
+        if os.path.isfile(norm_path):
+            existing_norm_list = [os.path.abspath(os.path.normpath(p)).replace('\\', '/').lower() for p in self.playlist_files]
+            if norm_path.lower() not in existing_norm_list:
+                self.playlist_files.append(norm_path)
+                item = QListWidgetItem(os.path.basename(norm_path))
+                item.setToolTip(norm_path)
+                item.setData(Qt.ItemDataRole.UserRole, norm_path)
                 item.setSizeHint(QSize(0, 22))
                 self.playlist_widget.addItem(item)
             
             for i in range(self.playlist_widget.count()):
                 it = self.playlist_widget.item(i)
-                if it.data(Qt.ItemDataRole.UserRole) == file_path:
+                user_data = it.data(Qt.ItemDataRole.UserRole)
+                if user_data and os.path.abspath(os.path.normpath(user_data)).replace('\\', '/').lower() == norm_path.lower():
                     self.playlist_widget.setCurrentItem(it)
                     break
 
@@ -757,7 +761,7 @@ class VideoCutterApp(QWidget):
             self.refresh_playlist_colors()
 
             if load_immediately:
-                self.fileInput.setText(file_path)
+                self.fileInput.setText(norm_path)
 
     def remove_selected_playlist_item(self):
         items = self.playlist_widget.selectedItems()
@@ -843,6 +847,14 @@ class VideoCutterApp(QWidget):
             return
         old_file_path = item.data(Qt.ItemDataRole.UserRole)
         if not old_file_path or not os.path.isfile(old_file_path):
+            if item:
+                row = self.playlist_widget.row(item)
+                self.playlist_widget.takeItem(row)
+                if old_file_path and old_file_path in self.playlist_files:
+                    self.playlist_files.remove(old_file_path)
+                    self.save_playlist_history()
+                self.refresh_playlist_colors()
+                self.show_toast("존재하지 않는 유실 파일이어서 재생목록에서 제거되었습니다.")
             return
             
         old_dir = os.path.dirname(old_file_path)
@@ -914,57 +926,6 @@ class VideoCutterApp(QWidget):
             self.capture_current_frame()
             return
 
-    def capture_current_frame(self):
-        if not self.player_widget.has_video_loaded or not self.fileInput.text().strip():
-            QMessageBox.warning(self, "경고", "스크린샷을 캡처할 영상이 선택되지 않았습니다.")
-            return
-
-        source_file = self.fileInput.text().strip()
-        if not os.path.isfile(source_file):
-            QMessageBox.warning(self, "경고", "원본 영상 파일이 존재하지 않습니다.")
-            return
-
-        pos_ms = self.player_widget.media_player.position()
-        time_str = ms_to_time_str(pos_ms)
-        time_tag = time_str.replace(":", "-").replace(".", "_")
-        
-        base_name = self.get_clean_output_name()
-        default_img_name = f"{base_name}_{time_tag}.png"
-        
-        default_dir = self.dirInput.text().strip() or os.path.dirname(source_file)
-        
-        save_name, ok = QInputDialog.getText(
-            self,
-            "현재 프레임 스크린샷 저장 (Ctrl+S)",
-            "저장할 스크린샷 이미지 파일 이름을 입력하세요:",
-            QLineEdit.EchoMode.Normal,
-            default_img_name
-        )
-        if not ok or not save_name.strip():
-            return
-
-        save_name = save_name.strip()
-        if not save_name.lower().endswith((".png", ".jpg", ".jpeg")):
-            save_name += ".png"
-
-        target_img_path = os.path.join(default_dir, save_name).replace('\\', '/')
-        
-        ffmpeg_bin = get_ffmpeg_path()
-        cmd = [
-            ffmpeg_bin, "-y",
-            "-ss", time_str,
-            "-i", source_file,
-            "-vframes", "1",
-            "-q:v", "2",
-            target_img_path
-        ]
-
-        try:
-            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            self.show_toast(f"'{os.path.basename(target_img_path)}' 스크린샷 저장 완료!")
-        except Exception as e:
-            QMessageBox.critical(self, "에러", f"스크린샷 캡처 실패:\n{str(e)}")
-
         source_file = self.fileInput.text().strip()
         default_dir = self.dirInput.text().strip() or os.path.dirname(source_file)
         default_name = self.get_clean_output_name()
@@ -1034,6 +995,57 @@ class VideoCutterApp(QWidget):
             QMessageBox.critical(self, "에러", f"변형 저장 실패:\n{e.stderr}")
         except Exception as e:
             QMessageBox.critical(self, "에러", f"변형 저장 실패:\n{str(e)}")
+
+    def capture_current_frame(self):
+        if not self.player_widget.has_video_loaded or not self.fileInput.text().strip():
+            QMessageBox.warning(self, "경고", "스크린샷을 캡처할 영상이 선택되지 않았습니다.")
+            return
+
+        source_file = self.fileInput.text().strip()
+        if not os.path.isfile(source_file):
+            QMessageBox.warning(self, "경고", "원본 영상 파일이 존재하지 않습니다.")
+            return
+
+        pos_ms = self.player_widget.media_player.position()
+        time_str = ms_to_time_str(pos_ms)
+        time_tag = time_str.replace(":", "-").replace(".", "_")
+        
+        base_name = self.get_clean_output_name()
+        default_img_name = f"{base_name}_{time_tag}.png"
+        
+        default_dir = self.dirInput.text().strip() or os.path.dirname(source_file)
+        
+        save_name, ok = QInputDialog.getText(
+            self,
+            "현재 프레임 스크린샷 저장 (Ctrl+S)",
+            "저장할 스크린샷 이미지 파일 이름을 입력하세요:",
+            QLineEdit.EchoMode.Normal,
+            default_img_name
+        )
+        if not ok or not save_name.strip():
+            return
+
+        save_name = save_name.strip()
+        if not save_name.lower().endswith((".png", ".jpg", ".jpeg")):
+            save_name += ".png"
+
+        target_img_path = os.path.join(default_dir, save_name).replace('\\', '/')
+        
+        ffmpeg_bin = get_ffmpeg_path()
+        cmd = [
+            ffmpeg_bin, "-y",
+            "-ss", time_str,
+            "-i", source_file,
+            "-vframes", "1",
+            "-q:v", "2",
+            target_img_path
+        ]
+
+        try:
+            subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+            self.show_toast(f"'{os.path.basename(target_img_path)}' 스크린샷 저장 완료!")
+        except Exception as e:
+            QMessageBox.critical(self, "에러", f"스크린샷 캡처 실패:\n{str(e)}")
 
     def clear_playlist(self):
         if self.player_widget.has_video_loaded:
@@ -1128,6 +1140,13 @@ class VideoCutterApp(QWidget):
                     end_cs = duration_cs
                     
                     self.startInput.setText(self.startInput.centiseconds_to_time(start_cs))
+                    self.endInput.setText(self.endInput.centiseconds_to_time(end_cs))
+
+                    duration_ms = duration_cs * 10
+                    self.player_widget.trimming_slider.set_duration(duration_ms)
+                    self.player_widget.trimming_slider.set_start_ms(0)
+                    self.player_widget.trimming_slider.set_end_ms(duration_ms)
+
                     base_name = os.path.basename(text)
                     if base_name.lower().endswith(".mp4"):
                         base_name = base_name[:-4]
@@ -1319,7 +1338,7 @@ class VideoCutterApp(QWidget):
             self.executeCutter()
 
     def executeCutter(self):
-        video_in = self.fileInput.text()
+        video_in = self.fileInput.text().strip()
         start_time = self.startInput.displayText()
         end_time = self.endInput.displayText()
         clean_name = self.get_clean_output_name()
@@ -1329,6 +1348,20 @@ class VideoCutterApp(QWidget):
         if not video_in or not out_dir:
             QMessageBox.warning(
                 self, "경고", "파일 경로 및 저장 위치를 모두 지정하십시오."
+            )
+            return
+
+        if not os.path.isfile(video_in):
+            QMessageBox.warning(
+                self, "경고", "원본 동영상 파일이 존재하지 않습니다."
+            )
+            return
+
+        start_cs = self.startInput.time_to_centiseconds(start_time)
+        end_cs = self.endInput.time_to_centiseconds(end_time)
+        if start_cs >= end_cs or (end_cs - start_cs) < 10:
+            QMessageBox.warning(
+                self, "경고", "컷팅 구간이 올바르지 않습니다. (최소 0.1초 이상 지정 필요)"
             )
             return
 
@@ -1344,8 +1377,6 @@ class VideoCutterApp(QWidget):
             self.nameInput.setText(final_name)
             self.nameInput.blockSignals(False)
 
-        start_cs = self.startInput.time_to_centiseconds(start_time)
-        end_cs = self.endInput.time_to_centiseconds(end_time)
         dur_cs = max(0, end_cs - start_cs)
         dur_str = self.startInput.centiseconds_to_time(dur_cs)
 
@@ -1356,12 +1387,10 @@ class VideoCutterApp(QWidget):
 
         cmd = [
             ffmpeg_bin,
-            "-ss",
-            start_time,
-            "-t",
-            dur_str,
-            "-i",
-            norm_in,
+            "-y",
+            "-ss", start_time,
+            "-i", norm_in,
+            "-t", dur_str,
         ]
 
         if self.muteCheck.isChecked():
@@ -1369,20 +1398,19 @@ class VideoCutterApp(QWidget):
         else:
             cmd.extend(["-c:v", "copy", "-c:a", "copy"])
 
+        cmd.extend(["-avoid_negative_ts", "make_zero"])
+
         if self.copyMetaCheck.isChecked():
-            cmd.append("-map_metadata")
-            cmd.append("0")
+            cmd.extend(["-map_metadata", "0"])
             if self.original_creation_dt:
                 offset_secs = start_cs / 100.0
                 new_creation_dt = self.original_creation_dt + timedelta(seconds=offset_secs)
                 new_creation_str = new_creation_dt.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
-                cmd.append("-metadata")
-                cmd.append(f"creation_time={new_creation_str}")
+                cmd.extend(["-metadata", f"creation_time={new_creation_str}"])
         else:
-            cmd.append("-map_metadata")
-            cmd.append("-1")
+            cmd.extend(["-map_metadata", "-1"])
 
-        cmd.extend(["-y", norm_out])
+        cmd.append(norm_out)
 
         try:
             subprocess.run(

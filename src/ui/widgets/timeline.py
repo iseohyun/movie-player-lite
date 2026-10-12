@@ -63,6 +63,8 @@ class ThumbnailGeneratorThread(QThread):
 
     def run(self):
         try:
+            if self.isInterruptionRequested():
+                return
             logging.info(f"[ThumbThread] Target video: {self.video_path}")
             duration_cs, _ = get_media_creation_time_and_duration(self.video_path)
             duration_sec = duration_cs / 100.0
@@ -71,36 +73,44 @@ class ThumbnailGeneratorThread(QThread):
                 logging.warning("[ThumbThread] Invalid duration_sec <= 0")
                 return
 
+            if self.isInterruptionRequested():
+                return
+
             ffmpeg_bin = get_ffmpeg_path()
-            logging.info(f"[ThumbThread] Using ffmpeg_bin: {ffmpeg_bin}")
             temp_dir = os.path.join(tempfile.gettempdir(), "mp4_trim_thumbs")
             os.makedirs(temp_dir, exist_ok=True)
 
-            paths = []
-            interval = max(0.5, duration_sec / float(self.count))
             vid_hash = abs(hash(self.video_path)) % 100000
-            for i in range(self.count):
-                seek_time = i * interval
-                out_path = os.path.join(temp_dir, f"thumb_{vid_hash}_{i}.jpg")
-                cmd = [
-                    ffmpeg_bin, "-ss", f"{seek_time:.2f}",
-                    "-i", self.video_path, "-vframes", "1",
-                    "-s", "120x68", "-y", out_path
-                ]
-                res = subprocess.run(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-                )
-                if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
-                    paths.append(out_path)
-                else:
-                    err = res.stderr.decode('utf-8', 'ignore') if res.stderr else "file empty"
-                    logging.warning(f"[ThumbThread] Frame {i} failed: {err}")
+            interval = max(0.5, duration_sec / float(self.count))
+            fps_val = 1.0 / interval
+
+            out_pattern = os.path.join(temp_dir, f"thumb_{vid_hash}_%02d.jpg").replace('\\', '/')
+
+            cmd = [
+                ffmpeg_bin, "-y",
+                "-i", self.video_path,
+                "-vf", f"fps={fps_val:.4f},scale=120:68",
+                "-vframes", str(self.count),
+                out_pattern
+            ]
+            res = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            )
+
+            if self.isInterruptionRequested():
+                return
+
+            paths = []
+            for i in range(1, self.count + 1):
+                p = os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg").replace('\\', '/')
+                if os.path.exists(p) and os.path.getsize(p) > 0:
+                    paths.append(p)
 
             logging.info(f"[ThumbThread] Extracted {len(paths)} / {self.count} thumbnails")
-            if paths:
+            if paths and not self.isInterruptionRequested():
                 self.thumbnails_ready.emit(paths)
         except Exception as e:
             logging.error(f"[ThumbThread] Exception: {e}", exc_info=True)

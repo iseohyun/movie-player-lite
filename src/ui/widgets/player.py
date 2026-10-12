@@ -225,10 +225,9 @@ class EmbeddedVideoPlayer(QWidget):
                 self.video_info = None
                 self.has_video_loaded = False
 
-            # 썸네일 필름스트립 스레드 시작
+            # 썸네일 필름스트립 스레드 안전 비동기 시작 (메인 스레드 데드락 방지)
             if hasattr(self, 'thumb_thread') and self.thumb_thread and self.thumb_thread.isRunning():
-                self.thumb_thread.terminate()
-                self.thumb_thread.wait()
+                self.thumb_thread.requestInterruption()
 
             self.trimming_slider.set_thumbnails([])
             self.thumb_thread = ThumbnailGeneratorThread(file_path, count=10, parent=self)
