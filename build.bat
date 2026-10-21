@@ -19,11 +19,11 @@ if "%BUILD_TYPE%"=="2" (
         pause
         exit /b 1
     )
-    python -m PyInstaller --name "movie-player-lite" --noupx --onefile --noconsole --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --add-binary "ffmpeg.exe;." --add-data "icon.ico;." --icon="icon.ico" movie-player-lite.py
+    python -m PyInstaller --name "movie-player-lite" --noupx --onefile --noconsole --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --hidden-import PyQt6.QtNetwork --add-binary "ffmpeg.exe;." --add-data "icon.ico;." --icon="icon.ico" movie-player-lite.py
 ) else (
     echo.
     echo Building Light Version...
-    python -m PyInstaller --name "movie-player-lite" --noupx --onefile --noconsole --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --add-data "icon.ico;." --icon="icon.ico" movie-player-lite.py
+    python -m PyInstaller --name "movie-player-lite" --noupx --onefile --noconsole --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --hidden-import PyQt6.QtNetwork --add-data "icon.ico;." --icon="icon.ico" movie-player-lite.py
 )
 
 echo.

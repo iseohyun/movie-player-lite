@@ -9,11 +9,12 @@ from datetime import datetime, timedelta
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QCheckBox, QRadioButton, QButtonGroup, QComboBox, QFrame, QStackedWidget,
-    QListWidget, QListWidgetItem, QMenu, QFileDialog, QMessageBox, QInputDialog, QScrollArea,
-    QApplication, QStyledItemDelegate, QStyle, QAbstractItemView
+    QListWidget, QListWidgetItem, QMenu, QMenuBar, QDialog, QFileDialog, QMessageBox,
+    QInputDialog, QScrollArea, QApplication, QStyledItemDelegate, QStyle, QAbstractItemView
 )
-from PyQt6.QtCore import Qt, QStandardPaths, QTimer, QPropertyAnimation, QEasingCurve, QObject, QEvent, QSize
-from PyQt6.QtGui import QIcon, QKeySequence, QKeyEvent, QAction, QColor, QPen
+from PyQt6.QtCore import Qt, QStandardPaths, QTimer, QPropertyAnimation, QEasingCurve, QObject, QEvent, QSize, QPoint
+from PyQt6.QtGui import QIcon, QKeySequence, QKeyEvent, QAction, QColor, QPen, QPixmap, QPainter
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
 from src.utils.logger import APP_DIR
 from src.utils.time_utils import ms_to_time_str
@@ -22,9 +23,58 @@ from src.core.metadata import (
     open_source_file_dir, get_media_creation_time_and_duration
 )
 from src.core.hotkeys import DEFAULT_HOTKEYS, event_to_key_str
+from src.core.lock_resolver import (
+    norm_path_key,
+    release_file_locks,
+    safe_rename_with_unlock,
+    safe_remove_with_unlock,
+)
 from src.ui.widgets.line_edit import ArrowKeyLineEdit
 from src.ui.widgets.player import EmbeddedVideoPlayer
 from src.ui.dialogs.key_capture import KeyCaptureDialog
+
+SINGLE_INSTANCE_SERVER_NAME = "MoviePlayerLite_SingleInstance_IPC_v1"
+HOTKEYS_SCHEMA_VERSION = 2
+
+
+def create_blue_check_icon(checked: bool) -> QIcon:
+    """ON/OFF 상태에 따라 메뉴 항목 왼쪽에 표시할 파란색 체크 아이콘 생성"""
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.GlobalColor.transparent)
+    if checked:
+        painter = QPainter(pm)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QColor("#0078d7"))
+        painter.setPen(QPen(QColor("#2d89ef"), 1))
+        painter.drawRoundedRect(1, 1, 14, 14, 3, 3)
+        pen = QPen(QColor("#ffffff"), 2.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(4, 8, 7, 11)
+        painter.drawLine(7, 11, 12, 5)
+        painter.end()
+    return QIcon(pm)
+
+
+def send_to_running_instance(file_args: list) -> bool:
+    """이미 실행 중인 Movie Player Lite 프로세스가 있으면 파일 경로를 전달하고 True를 반환합니다."""
+    socket = QLocalSocket()
+    socket.connectToServer(SINGLE_INSTANCE_SERVER_NAME)
+    if socket.waitForConnected(500):
+        clean_files = []
+        for f in file_args:
+            cleaned = f.strip('"\'')
+            if cleaned and os.path.isfile(cleaned):
+                clean_files.append(os.path.abspath(os.path.normpath(cleaned)).replace('\\', '/'))
+        payload = json.dumps({"files": clean_files}, ensure_ascii=False).encode("utf-8")
+        socket.write(payload)
+        socket.flush()
+        socket.waitForBytesWritten(1000)
+        socket.waitForReadyRead(1500)
+        socket.disconnectFromServer()
+        return True
+    return False
 
 
 def get_user_data_path(file_name: str) -> str:
@@ -35,6 +85,7 @@ def get_user_data_path(file_name: str) -> str:
         return os.path.join(dir_path, file_name)
     return os.path.join(APP_DIR, file_name)
 
+
 def save_app_data_json(file_name: str, data):
     paths = [get_user_data_path(file_name), os.path.join(APP_DIR, file_name)]
     for p in paths:
@@ -44,6 +95,7 @@ def save_app_data_json(file_name: str, data):
                 json.dump(data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logging.error(f"Failed to save JSON to {p}: {e}")
+
 
 def load_app_data_json(file_name: str):
     paths = [get_user_data_path(file_name), os.path.join(APP_DIR, file_name)]
@@ -83,44 +135,43 @@ class PlaylistDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         painter.save()
         rect = option.rect
-        
+
         bg_brush = index.data(Qt.ItemDataRole.BackgroundRole)
         fg_brush = index.data(Qt.ItemDataRole.ForegroundRole)
         is_selected = bool(option.state & QStyle.StateFlag.State_Selected)
-        
+
         if is_selected:
-            # 현재 선택된 파일: 파란색 배경 + 흰색 글씨
             painter.fillRect(rect, QColor('#0078d7'))
             painter.setPen(QColor('#ffffff'))
         elif bg_brush:
-            # 컷팅 히스토리가 있는 파일: 노란색 단계별 배경 + 지정된 글씨색(흰색)
             painter.fillRect(rect, bg_brush.color())
             painter.setPen(fg_brush.color() if fg_brush else QColor('#ffffff'))
         else:
-            # 기본 파일: 어두운 배경 + 흰색 글씨
             painter.fillRect(rect, QColor('#1e1e1e'))
             painter.setPen(QColor('#ffffff'))
-            
+
         text = index.data(Qt.ItemDataRole.DisplayRole) or ""
         text_rect = rect.adjusted(8, 0, -8, 0)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, text)
-        
-        # 하단 구분선
+
         painter.setPen(QPen(QColor('#282828'), 1))
         painter.drawLine(rect.bottomLeft(), rect.bottomRight())
-        
+
         painter.restore()
 
 
 class CustomPlaylistListWidget(QListWidget):
+    def __init__(self, main_app=None, parent=None):
+        super().__init__(parent)
+        self.main_app = main_app
+
     def keyPressEvent(self, event: QKeyEvent):
+        main_win = self.main_app or self.window()
         if event.key() == Qt.Key.Key_F2:
-            main_win = self.window()
             if hasattr(main_win, 'rename_selected_playlist_file'):
                 main_win.rename_selected_playlist_file()
                 return
         elif event.key() == Qt.Key.Key_Delete:
-            main_win = self.window()
             if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
                 if hasattr(main_win, 'delete_selected_playlist_file_permanently'):
                     main_win.delete_selected_playlist_file_permanently()
@@ -129,6 +180,56 @@ class CustomPlaylistListWidget(QListWidget):
                 if hasattr(main_win, 'remove_selected_playlist_item'):
                     main_win.remove_selected_playlist_item()
                     return
+        super().keyPressEvent(event)
+
+
+class FloatingModalDialog(QDialog):
+    """비모달 플로팅 창 (편집 모달 / 리스트 모달용): Z축 계층 우선순위 및 단축키 전달 지원"""
+    def __init__(self, main_app, title: str, z_priority: int = 1, parent=None):
+        super().__init__(parent or main_app)
+        self.main_app = main_app
+        self.z_order_priority = z_priority
+        self.setWindowTitle(title)
+        flags = (
+            Qt.WindowType.Tool |
+            Qt.WindowType.WindowTitleHint |
+            Qt.WindowType.WindowCloseButtonHint |
+            Qt.WindowType.CustomizeWindowHint
+        )
+        if z_priority >= 2:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self.main_app, 'on_modal_visibility_changed'):
+            self.main_app.on_modal_visibility_changed()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        if hasattr(self.main_app, 'on_modal_visibility_changed'):
+            self.main_app.on_modal_visibility_changed()
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        if hasattr(self.main_app, 'on_modal_visibility_changed'):
+            QTimer.singleShot(0, self.main_app.on_modal_visibility_changed)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.ActivationChange and self.isActiveWindow():
+            if hasattr(self.main_app, 'ensure_modal_z_order'):
+                QTimer.singleShot(10, self.main_app.ensure_modal_z_order)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        focus_w = QApplication.focusWidget()
+        if not isinstance(focus_w, QLineEdit) and hasattr(self.main_app, 'keyPressEvent'):
+            self.main_app.keyPressEvent(event)
+            return
+        if event.key() == Qt.Key.Key_Escape:
+            self.hide()
+            return
         super().keyPressEvent(event)
 
 
@@ -154,11 +255,14 @@ class VideoCutterApp(QWidget):
         self.create_history_flag = True
         self.is_loading_history = False
         self.is_loading_file = False
-        self.is_loading_file = False
         self.last_enter_name = ""
         self.original_duration_cs = 35999999
         self.original_creation_dt = None
-        
+        self._auto_play_next_load = False
+        self.playlist_file_ids = {}
+        self.local_server = None
+        self.fullscreen_stage = 0
+
         self.default_dir = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.MoviesLocation
         )
@@ -172,12 +276,15 @@ class VideoCutterApp(QWidget):
         self.load_history()
         self.load_task_history()
         self.load_playlist_history()
+        self.init_single_instance_server()
+        self.init_external_file_watcher()
 
         if len(sys.argv) > 1:
-            initial_file = sys.argv[1].strip('"\'')
-            if os.path.isfile(initial_file):
-                self.fileInput.setText(initial_file)
-                QTimer.singleShot(300, lambda: self.player_widget.load_video(initial_file, auto_play=True))
+            valid_args = [a.strip('"\'') for a in sys.argv[1:] if os.path.isfile(a.strip('"\''))]
+            if valid_args:
+                for extra_file in valid_args[1:]:
+                    self.add_file_to_playlist(extra_file, load_immediately=False, save_history=True)
+                self.open_and_play_external_file(valid_args[0])
 
     def load_hotkeys(self):
         self.hotkeys_file = os.path.join(APP_DIR, "hotkeys.json")
@@ -187,17 +294,22 @@ class VideoCutterApp(QWidget):
                 with open(self.hotkeys_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, dict):
-                        for k, v in data.items():
-                            if k in self.hotkeys and isinstance(v, dict):
-                                self.hotkeys[k]["primary"] = v.get("primary", self.hotkeys[k]["primary"])
-                                self.hotkeys[k]["secondary"] = v.get("secondary", self.hotkeys[k]["secondary"])
+                        if data.get("_schema_version") == HOTKEYS_SCHEMA_VERSION:
+                            for k, v in data.items():
+                                if k in self.hotkeys and isinstance(v, dict):
+                                    self.hotkeys[k]["primary"] = v.get("primary", self.hotkeys[k]["primary"])
+                                    self.hotkeys[k]["secondary"] = v.get("secondary", self.hotkeys[k]["secondary"])
+                        else:
+                            self.save_hotkeys()
             except Exception as e:
                 logging.error(f"Failed to load hotkeys: {e}")
 
     def save_hotkeys(self):
         try:
+            payload = {"_schema_version": HOTKEYS_SCHEMA_VERSION}
+            payload.update(self.hotkeys)
             with open(self.hotkeys_file, "w", encoding="utf-8") as f:
-                json.dump(self.hotkeys, f, ensure_ascii=False, indent=2)
+                json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logging.error(f"Failed to save hotkeys: {e}")
 
@@ -208,7 +320,7 @@ class VideoCutterApp(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        self.setWindowTitle("Movie Player Lite v1.5.0")
+        self.setWindowTitle("Movie Player Lite")
         self.setAcceptDrops(True)
 
         screen = QApplication.primaryScreen()
@@ -221,18 +333,27 @@ class VideoCutterApp(QWidget):
             self.setGeometry(x, y, w, h)
         else:
             self.resize(850, 600)
-        self.setMinimumSize(700, 480)
+        self.setMinimumSize(640, 420)
+        self.setStyleSheet("VideoCutterApp { background-color: #000000; }")
 
-        root_layout = QHBoxLayout(self)
-        root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(10)
+        # 최소한의 베젤(여백 0px)로 메인 플레이어 100% 배치
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        # 1. 좌측 옵션 사이드바 패널
-        self.option_sidebar = QFrame()
-        self.option_sidebar.setMinimumWidth(0)
-        self.option_sidebar.setMaximumWidth(270)
-        self.option_sidebar.setStyleSheet("""
-            QFrame { background-color: #252526; border-radius: 6px; }
+        self.player_widget = EmbeddedVideoPlayer(self)
+        root_layout.addWidget(self.player_widget, 1)
+
+        # 상단 오버레이 메뉴바 (기본 숨김, Alt 키 및 마우스 감지 시 표시)
+        self.build_top_menu_bar()
+
+        # -------------------------------------------------------------
+        # 1. 편집 모달 (기본 모달, Z-Priority = 1, 열려 있을 때 재생바 고정 표시)
+        # -------------------------------------------------------------
+        self.edit_modal = FloatingModalDialog(self, "편집 및 저장 설정 (단축키: E)", z_priority=1, parent=self)
+        self.edit_modal.resize(310, 440)
+        self.edit_modal.setStyleSheet("""
+            QDialog { background-color: #252526; color: white; }
             QLabel { color: white; font-weight: bold; }
             QLineEdit { background-color: #1e1e1e; color: white; border: 1px solid #333; border-radius: 4px; padding: 4px; }
             QComboBox { background-color: #1e1e1e; color: white; border: 1px solid #333; border-radius: 4px; padding: 4px; }
@@ -240,37 +361,37 @@ class VideoCutterApp(QWidget):
             QPushButton { background-color: #3e3e42; color: white; border-radius: 4px; padding: 4px 8px; }
             QPushButton:hover { background-color: #0078d7; }
         """)
+        self.option_sidebar = self.edit_modal  # 하위 호환성 별칭
 
-        opt_sidebar_layout = QVBoxLayout(self.option_sidebar)
-        opt_sidebar_layout.setContentsMargins(4, 4, 4, 4)
-
-        self.option_stack = QStackedWidget()
-        opt_sidebar_layout.addWidget(self.option_stack)
-
-        # Page 0: 메인 옵션 설정 페이지
-        opt_main_page = QWidget()
-        opt_layout = QVBoxLayout(opt_main_page)
-        opt_layout.setContentsMargins(6, 6, 6, 6)
+        opt_layout = QVBoxLayout(self.edit_modal)
+        opt_layout.setContentsMargins(10, 10, 10, 10)
         opt_layout.setSpacing(8)
 
         opt_header = QHBoxLayout()
-        opt_title = QLabel("옵션 & 설정 (단축키: [ )")
+        opt_title = QLabel("컷팅 & 편집 설정 (단축키: E)")
         opt_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2d89ef;")
-        
         self.hotkey_btn = QPushButton("⌨")
-        self.hotkey_btn.setToolTip("단축키 안내 / 설정")
+        self.hotkey_btn.setToolTip("단축키 설정 열기")
         self.hotkey_btn.setFixedSize(26, 26)
-        self.hotkey_btn.setStyleSheet("""
-            QPushButton { background-color: #333; color: white; border-radius: 4px; font-size: 14px; font-weight: bold; border: 1px solid #444; padding: 0; }
-            QPushButton:hover { background-color: #0078d7; border-color: #0078d7; }
-        """)
-        self.hotkey_btn.clicked.connect(lambda: self.option_stack.setCurrentIndex(1))
-
+        self.hotkey_btn.clicked.connect(self.open_hotkey_modal)
         opt_header.addWidget(opt_title, 1)
         opt_header.addWidget(self.hotkey_btn, 0)
         opt_layout.addLayout(opt_header)
 
-        # 1-1. 저장 파일명 (.mp4 생략 표시)
+        # 시작/종료 시각 입력 필드
+        self.fileInput = QLineEdit()
+        self.fileInput.textChanged.connect(self.on_file_changed)
+        self.startInput = ArrowKeyLineEdit("00:00:00.00")
+        self.endInput = ArrowKeyLineEdit("00:00:00.00")
+
+        time_range_box = QHBoxLayout()
+        time_range_box.addWidget(QLabel("구간:"))
+        time_range_box.addWidget(self.startInput, 1)
+        time_range_box.addWidget(QLabel("~"))
+        time_range_box.addWidget(self.endInput, 1)
+        opt_layout.addLayout(time_range_box)
+
+        # 저장 파일명 (.mp4 생략 표시) + 컷팅 버튼
         name_box = QHBoxLayout()
         self.nameInput = QLineEdit("output")
         self.nameInput.textChanged.connect(self.on_input_modified)
@@ -285,20 +406,20 @@ class VideoCutterApp(QWidget):
         opt_layout.addWidget(QLabel("저장 파일명"))
         opt_layout.addLayout(name_box)
 
-        # 1-2. 저장 옵션
+        # 저장 옵션
         self.muteCheck = QCheckBox("음소거 (영상만 가져오기)")
         self.copyMetaCheck = QCheckBox("속성 복사")
         self.copyMetaCheck.setChecked(True)
         self.autoNumberCheck = QCheckBox("자동 넘버링")
-        self.autoNumberCheck.setChecked(False)  # default: unchecked
-        self.hudCheck = QCheckBox("동영상 정보 HUD 표시")
+        self.autoNumberCheck.setChecked(False)
+        self.hudCheck = QCheckBox("동영상 상세 정보 HUD 표시 (`)")
         self.hudCheck.toggled.connect(self.on_hud_check_toggled)
         opt_layout.addWidget(self.muteCheck)
         opt_layout.addWidget(self.copyMetaCheck)
         opt_layout.addWidget(self.autoNumberCheck)
         opt_layout.addWidget(self.hudCheck)
 
-        # 1-3. 저장 위치
+        # 저장 위치
         opt_layout.addWidget(QLabel("저장 위치"))
         self.radioSame = QRadioButton("동일 경로 (../)")
         self.radioOutput = QRadioButton("output 폴더 (../output/)")
@@ -321,7 +442,6 @@ class VideoCutterApp(QWidget):
         opt_layout.addWidget(QLabel("저장 경로"))
         opt_layout.addLayout(dir_box)
 
-        # 1-4. 작업 히스토리 및 최근 작업 폴더 (글씨 흰색 스타일 적용)
         combo_style = """
             QComboBox {
                 background-color: #1e1e1e;
@@ -354,29 +474,7 @@ class VideoCutterApp(QWidget):
         hist_box.addWidget(self.historyCombo, 1)
         hist_box.addWidget(self.openDirBtn, 0)
         opt_layout.addLayout(hist_box)
-
         opt_layout.addStretch()
-
-        # Page 1: 단축키 설정 페이지
-        opt_hotkey_page = self.build_hotkey_settings_page()
-
-        self.option_stack.addWidget(opt_main_page)
-        self.option_stack.addWidget(opt_hotkey_page)
-
-        # 2. 중앙 메인 플레이어 영역
-        center_container = QWidget()
-        center_layout = QVBoxLayout(center_container)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(0)
-
-        self.player_widget = EmbeddedVideoPlayer(self)
-        center_layout.addWidget(self.player_widget, 1)
-
-        # 숨김 입력 필드 유지
-        self.fileInput = QLineEdit()
-        self.fileInput.textChanged.connect(self.on_file_changed)
-        self.startInput = ArrowKeyLineEdit("00:00:00.00")
-        self.endInput = ArrowKeyLineEdit("00:00:00.00")
 
         self.player_widget.trimming_slider.start_changed.connect(self.on_trim_start_changed)
         self.player_widget.trimming_slider.end_changed.connect(self.on_trim_end_changed)
@@ -386,25 +484,27 @@ class VideoCutterApp(QWidget):
         self.startInput.textChanged.connect(self.on_start_input_text_changed)
         self.endInput.textChanged.connect(self.on_end_input_text_changed)
 
-        # 3. 우측 재생 목록 사이드바 패널
+        # -------------------------------------------------------------
+        # 2. 리스트 모달 (기본 모달보다 Z축 상위에 출력, Z-Priority = 2)
+        # -------------------------------------------------------------
         self.playlist_files = []
-        self.playlist_sidebar = QFrame()
-        self.playlist_sidebar.setMinimumWidth(0)
-        self.playlist_sidebar.setMaximumWidth(240)
-        self.playlist_sidebar.setStyleSheet("""
-            QFrame { background-color: #252526; border-radius: 6px; }
+        self.playlist_modal = FloatingModalDialog(self, "재생 목록 (단축키: P)", z_priority=2, parent=self)
+        self.playlist_modal.resize(280, 420)
+        self.playlist_modal.setStyleSheet("""
+            QDialog { background-color: #252526; color: white; }
             QLabel { color: white; font-weight: bold; }
-            QListWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #333; border-radius: 4px; }
+            QListWidget { background-color: #1e1e1e; color: #dcdcdc; border: 1px solid #333; border-radius: 4px; outline: none; }
             QListWidget::item { padding: 3px 5px; margin: 0px; border-bottom: 1px solid #2a2a2a; font-size: 12px; }
             QListWidget::item:hover { background-color: #2a2d32; }
             QListWidget::item:selected { background-color: #0078d7; color: white; }
         """)
+        self.playlist_sidebar = self.playlist_modal  # 하위 호환성 별칭
 
-        sidebar_layout = QVBoxLayout(self.playlist_sidebar)
-        sidebar_layout.setContentsMargins(8, 8, 8, 8)
+        sidebar_layout = QVBoxLayout(self.playlist_modal)
+        sidebar_layout.setContentsMargins(10, 10, 10, 10)
 
         sb_header = QHBoxLayout()
-        sb_title = QLabel("재생 목록 (단축키: ] )")
+        sb_title = QLabel("재생 목록 (단축키: P)")
         self.add_file_btn = QPushButton("+ 추가")
         self.add_file_btn.setStyleSheet("background-color: #2d89ef; color: white; padding: 4px 8px; font-weight: bold; border-radius: 4px;")
         self.add_file_btn.clicked.connect(self.openFileDialog)
@@ -413,32 +513,29 @@ class VideoCutterApp(QWidget):
         sb_header.addWidget(self.add_file_btn)
         sidebar_layout.addLayout(sb_header)
 
-        self.playlist_widget = CustomPlaylistListWidget()
+        self.playlist_widget = CustomPlaylistListWidget(main_app=self, parent=self.playlist_modal)
         self.playlist_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.playlist_widget.setItemDelegate(PlaylistDelegate(self.playlist_widget))
-        self.playlist_widget.setStyleSheet("""
-            QListWidget {
-                background-color: #1e1e1e;
-                color: #ffffff;
-                border: 1px solid #333;
-                border-radius: 4px;
-                outline: none;
-            }
-        """)
         self.playlist_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.playlist_widget.customContextMenuRequested.connect(self.on_playlist_context_menu)
         self.playlist_widget.itemDoubleClicked.connect(self.on_playlist_item_double_clicked)
-        sidebar_layout.addWidget(self.playlist_widget)
+        sidebar_layout.addWidget(self.playlist_widget, 1)
 
-        root_layout.addWidget(self.option_sidebar, 0)
-        root_layout.addWidget(center_container, 1)
-        root_layout.addWidget(self.playlist_sidebar, 0)
+        # -------------------------------------------------------------
+        # 3. 단축키 설정 모달
+        # -------------------------------------------------------------
+        self.hotkey_modal = QDialog(self)
+        self.hotkey_modal.setWindowTitle("단축키 설정")
+        self.hotkey_modal.resize(360, 480)
+        self.hotkey_modal.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+        hk_modal_layout = QVBoxLayout(self.hotkey_modal)
+        hk_modal_layout.setContentsMargins(0, 0, 0, 0)
+        hk_modal_layout.addWidget(self.build_hotkey_settings_page())
 
         # Radio buttons connections
         self.radioSame.toggled.connect(self.on_radio_changed)
         self.radioOutput.toggled.connect(self.on_radio_changed)
         self.radioCustom.toggled.connect(self.on_radio_changed)
-
         self.radioOutput.setChecked(True)
 
         self.fileInput.textChanged.connect(self.on_input_modified)
@@ -453,7 +550,7 @@ class VideoCutterApp(QWidget):
         self.radioOutput.toggled.connect(self.on_input_modified)
         self.radioCustom.toggled.connect(self.on_input_modified)
 
-        # 포커스 아웃 필터 등록 (입력 필드가 포커스 잃으면 타임라인으로 반환)
+        # 포커스 아웃 필터 등록
         self.focus_filter = FocusOutFilter(self.player_widget.trimming_slider, self)
         self.nameInput.installEventFilter(self.focus_filter)
         self.dirInput.installEventFilter(self.focus_filter)
@@ -462,20 +559,350 @@ class VideoCutterApp(QWidget):
         self.taskHistoryCombo.installEventFilter(self.focus_filter)
         self.historyCombo.installEventFilter(self.focus_filter)
 
+        self.sync_menu_check_states()
+        self.player_widget.apply_auto_hide_settings()
+
+    def build_top_menu_bar(self):
+        """상단 오버레이 메뉴바 (파일 / 재생 / 화면 / 설정 / 조작) 구성"""
+        self.top_menu_bar = QMenuBar(self.player_widget)
+        self.top_menu_bar.setFixedHeight(28)
+        self.top_menu_bar.setStyleSheet("""
+            QMenuBar {
+                background-color: rgba(25, 25, 28, 0.92);
+                color: #ffffff;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+                font-size: 12px;
+                padding: 2px 6px;
+            }
+            QMenuBar::item {
+                background: transparent;
+                padding: 4px 10px;
+                border-radius: 4px;
+            }
+            QMenuBar::item:selected {
+                background-color: #0078d7;
+                color: #ffffff;
+            }
+            QMenu {
+                background-color: #252526;
+                color: #ffffff;
+                border: 1px solid #444444;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 5px 24px 5px 10px;
+                border-radius: 3px;
+            }
+            QMenu::item:selected {
+                background-color: #0078d7;
+                color: #ffffff;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #3e3e42;
+                margin: 4px 6px;
+            }
+        """)
+
+        # 1. 파일 메뉴
+        self.file_menu = self.top_menu_bar.addMenu("파일(&F)")
+        self.act_open_file = QAction("열기", self)
+        self.act_open_file.triggered.connect(self.openFileDialog)
+        self.act_show_playlist = QAction("리스트 보기 (P)", self)
+        self.act_show_playlist.triggered.connect(lambda: self.toggle_playlist_modal())
+        self.file_menu.addAction(self.act_open_file)
+        self.file_menu.addAction(self.act_show_playlist)
+
+        # 2. 재생 메뉴
+        self.play_menu = self.top_menu_bar.addMenu("재생(&P)")
+        self.speed_menu = self.play_menu.addMenu("배속")
+        self.speed_actions = {}
+        for spd in (0.5, 1.0, 1.25, 1.50, 1.75, 2.00, 3.00):
+            label = f"{spd:.2f}배" if spd not in (0.5, 1.0) else f"{spd:g}배"
+            act = QAction(label, self)
+            act.triggered.connect(lambda _, r=spd: self.player_widget.set_playback_rate(r))
+            self.speed_menu.addAction(act)
+            self.speed_actions[spd] = act
+
+        self.act_speed_up = QAction("+0.25배속 (+)", self)
+        self.act_speed_up.triggered.connect(lambda: self.player_widget.change_playback_rate(0.25))
+        self.act_speed_down = QAction("-0.25배속 (-)", self)
+        self.act_speed_down.triggered.connect(lambda: self.player_widget.change_playback_rate(-0.25))
+        self.act_speed_reset = QAction("기본배속으로 (0)", self)
+        self.act_speed_reset.triggered.connect(self.player_widget.reset_playback_rate)
+
+        self.play_menu.addAction(self.act_speed_up)
+        self.play_menu.addAction(self.act_speed_down)
+        self.play_menu.addAction(self.act_speed_reset)
+        self.play_menu.addSeparator()
+
+        self.act_play_pause = QAction("멈춤/재생 (Space)", self)
+        self.act_play_pause.triggered.connect(self.player_widget.toggle_play)
+        self.act_step_1s_prev = QAction("1초 전 (←)", self)
+        self.act_step_1s_prev.triggered.connect(lambda: self.player_widget.step_time(-1000))
+        self.act_step_1s_next = QAction("1초 후 (→)", self)
+        self.act_step_1s_next.triggered.connect(lambda: self.player_widget.step_time(1000))
+        self.act_step_5s_prev = QAction("5초 전 (Shift+←)", self)
+        self.act_step_5s_prev.triggered.connect(lambda: self.player_widget.step_time(-5000))
+        self.act_step_5s_next = QAction("5초 후 (Shift+→)", self)
+        self.act_step_5s_next.triggered.connect(lambda: self.player_widget.step_time(5000))
+        self.act_frame_prev = QAction("1프레임 전 (<)", self)
+        self.act_frame_prev.triggered.connect(lambda: self.player_widget.step_frame(forward=False))
+        self.act_frame_next = QAction("1프레임 후 (>)", self)
+        self.act_frame_next.triggered.connect(lambda: self.player_widget.step_frame(forward=True))
+
+        self.play_menu.addAction(self.act_play_pause)
+        self.play_menu.addAction(self.act_step_1s_prev)
+        self.play_menu.addAction(self.act_step_1s_next)
+        self.play_menu.addAction(self.act_step_5s_prev)
+        self.play_menu.addAction(self.act_step_5s_next)
+        self.play_menu.addAction(self.act_frame_prev)
+        self.play_menu.addAction(self.act_frame_next)
+        self.play_menu.addSeparator()
+
+        self.act_prev_video = QAction("이전 동영상 (PgUp / [)", self)
+        self.act_prev_video.triggered.connect(self.play_prev_video)
+        self.act_next_video = QAction("다음 동영상 (PgDown / ])", self)
+        self.act_next_video.triggered.connect(self.play_next_video)
+        self.play_menu.addAction(self.act_prev_video)
+        self.play_menu.addAction(self.act_next_video)
+        self.play_menu.addSeparator()
+
+        self.act_vol_up = QAction("볼륨 올리기 (↑)", self)
+        self.act_vol_up.triggered.connect(lambda: self.player_widget.change_volume(0.05))
+        self.act_vol_down = QAction("볼륨 내리기 (↓)", self)
+        self.act_vol_down.triggered.connect(lambda: self.player_widget.change_volume(-0.05))
+        self.act_toggle_mute = QAction("음소거 (M)", self)
+        self.act_toggle_mute.triggered.connect(self.player_widget.toggle_mute)
+        self.play_menu.addAction(self.act_vol_up)
+        self.play_menu.addAction(self.act_vol_down)
+        self.play_menu.addAction(self.act_toggle_mute)
+
+        # 3. 화면 메뉴
+        self.view_menu = self.top_menu_bar.addMenu("화면(&V)")
+        self.act_zoom_in = QAction("확대 (Ctrl++)", self)
+        self.act_zoom_in.triggered.connect(lambda: self.player_widget.zoom_in())
+        self.act_zoom_out = QAction("축소 (Ctrl+-)", self)
+        self.act_zoom_out.triggered.connect(lambda: self.player_widget.zoom_out())
+
+        self.pan_menu = self.view_menu.addMenu("확대시 이동 (Ctrl+방향키)")
+        act_pan_up = QAction("위로 이동 (Ctrl+↑)", self)
+        act_pan_up.triggered.connect(lambda: self.player_widget.pan_view(0, -20))
+        act_pan_down = QAction("아래로 이동 (Ctrl+↓)", self)
+        act_pan_down.triggered.connect(lambda: self.player_widget.pan_view(0, 20))
+        act_pan_left = QAction("왼쪽 이동 (Ctrl+←)", self)
+        act_pan_left.triggered.connect(lambda: self.player_widget.pan_view(-20, 0))
+        act_pan_right = QAction("오른쪽 이동 (Ctrl+→)", self)
+        act_pan_right.triggered.connect(lambda: self.player_widget.pan_view(20, 0))
+        act_zoom_reset = QAction("확대/위치 초기화 (Ctrl+0)", self)
+        act_zoom_reset.triggered.connect(self.player_widget.reset_zoom_pan)
+        self.pan_menu.addAction(act_pan_up)
+        self.pan_menu.addAction(act_pan_down)
+        self.pan_menu.addAction(act_pan_left)
+        self.pan_menu.addAction(act_pan_right)
+        self.pan_menu.addSeparator()
+        self.pan_menu.addAction(act_zoom_reset)
+
+        self.view_menu.addAction(self.act_zoom_in)
+        self.view_menu.addAction(self.act_zoom_out)
+        self.view_menu.addMenu(self.pan_menu)
+        self.view_menu.addSeparator()
+
+        self.act_rot_right = QAction("화면 오른쪽 회전 (R)", self)
+        self.act_rot_right.triggered.connect(self.player_widget.rotate_right)
+        self.act_rot_left = QAction("화면 왼쪽 회전 (L)", self)
+        self.act_rot_left.triggered.connect(self.player_widget.rotate_left)
+        self.act_flip_h = QAction("화면 좌우반전 (H)", self)
+        self.act_flip_h.triggered.connect(self.player_widget.flip_horizontal)
+        self.act_flip_v = QAction("화면 상하반전 (V)", self)
+        self.act_flip_v.triggered.connect(self.player_widget.flip_vertical)
+
+        self.view_menu.addAction(self.act_rot_right)
+        self.view_menu.addAction(self.act_rot_left)
+        self.view_menu.addAction(self.act_flip_h)
+        self.view_menu.addAction(self.act_flip_v)
+        self.view_menu.addSeparator()
+
+        self.act_screen_normal = QAction("기본화면 (Esc)", self)
+        self.act_screen_normal.triggered.connect(lambda: self.set_screen_mode(0))
+        self.act_screen_full = QAction("전체화면 (F)", self)
+        self.act_screen_full.triggered.connect(lambda: self.set_screen_mode(2))
+        self.act_screen_stretch = QAction("꽉찬화면", self)
+        self.act_screen_stretch.triggered.connect(lambda: self.set_screen_mode(3))
+
+        self.view_menu.addAction(self.act_screen_normal)
+        self.view_menu.addAction(self.act_screen_full)
+        self.view_menu.addAction(self.act_screen_stretch)
+        self.view_menu.addSeparator()
+
+        self.act_toggle_time = QAction("시간/상태 정보 표시 (T)", self)
+        self.act_toggle_time.triggered.connect(self.player_widget.toggle_time_label)
+        self.act_toggle_hud = QAction("상세 설정 정보 표시 (`)", self)
+        self.act_toggle_hud.triggered.connect(self.player_widget.toggle_hud_overlay)
+        self.act_show_props = QAction("동영상 속성 모달 보기 (?)", self)
+        self.act_show_props.triggered.connect(self.view_source_properties)
+
+        self.view_menu.addAction(self.act_toggle_time)
+        self.view_menu.addAction(self.act_toggle_hud)
+        self.view_menu.addAction(self.act_show_props)
+
+        # 4. 설정 메뉴
+        self.settings_menu = self.top_menu_bar.addMenu("설정(&S)")
+        self.act_open_hotkeys = QAction("단축키", self)
+        self.act_open_hotkeys.triggered.connect(self.open_hotkey_modal)
+        self.act_auto_hide_timeline = QAction("재생바 기본숨김", self)
+        self.act_auto_hide_timeline.triggered.connect(self.toggle_auto_hide_timeline)
+        self.act_auto_hide_menubar = QAction("메뉴바 기본숨김", self)
+        self.act_auto_hide_menubar.triggered.connect(self.toggle_auto_hide_menubar)
+
+        self.settings_menu.addAction(self.act_open_hotkeys)
+        self.settings_menu.addAction(self.act_auto_hide_timeline)
+        self.settings_menu.addAction(self.act_auto_hide_menubar)
+
+        # 5. 조작 메뉴
+        self.action_menu = self.top_menu_bar.addMenu("조작(&E)")
+        self.act_open_edit_modal = QAction("편집 모달 호출 (E)", self)
+        self.act_open_edit_modal.triggered.connect(lambda: self.toggle_edit_modal())
+        self.action_menu.addAction(self.act_open_edit_modal)
+
+        self.top_menu_bar.hide()
+
+    def layout_top_menu_bar(self):
+        if hasattr(self, 'top_menu_bar') and self.top_menu_bar and hasattr(self, 'player_widget'):
+            self.top_menu_bar.setGeometry(0, 0, self.player_widget.width(), 28)
+            self.top_menu_bar.raise_()
+
+    def sync_menu_check_states(self):
+        """ON/OFF 토글 항목들의 파란색 체크 아이콘 동기화"""
+        if not hasattr(self, 'act_auto_hide_timeline'):
+            return
+        self.act_auto_hide_timeline.setIcon(create_blue_check_icon(self.player_widget.auto_hide_timeline))
+        self.act_auto_hide_menubar.setIcon(create_blue_check_icon(self.player_widget.auto_hide_menubar))
+        self.act_toggle_time.setIcon(create_blue_check_icon(self.player_widget.show_time_label))
+        self.act_toggle_hud.setIcon(create_blue_check_icon(self.player_widget.force_hud_visible))
+        self.act_toggle_mute.setIcon(create_blue_check_icon(self.player_widget.audio_output.isMuted()))
+        for spd, act in self.speed_actions.items():
+            act.setIcon(create_blue_check_icon(abs(self.player_widget.playback_rate - spd) < 1e-3))
+
+        stage = getattr(self, 'fullscreen_stage', 0)
+        self.act_screen_normal.setIcon(create_blue_check_icon(stage == 0))
+        self.act_screen_full.setIcon(create_blue_check_icon(stage in (1, 2)))
+        self.act_screen_stretch.setIcon(create_blue_check_icon(stage == 3))
+
+    def toggle_auto_hide_timeline(self):
+        self.player_widget.auto_hide_timeline = not self.player_widget.auto_hide_timeline
+        self.sync_menu_check_states()
+        self.player_widget.apply_auto_hide_settings()
+        self.show_toast("재생바 기본숨김 ON" if self.player_widget.auto_hide_timeline else "재생바 기본숨김 OFF (항상 표시)")
+
+    def toggle_auto_hide_menubar(self):
+        self.player_widget.auto_hide_menubar = not self.player_widget.auto_hide_menubar
+        self.sync_menu_check_states()
+        self.player_widget.apply_auto_hide_settings()
+        self.show_toast("메뉴바 기본숨김 ON" if self.player_widget.auto_hide_menubar else "메뉴바 기본숨김 OFF (항상 표시)")
+
+    def show_player_context_menu(self, global_pos: QPoint):
+        ctx = QMenu(self)
+        ctx.setStyleSheet(self.top_menu_bar.styleSheet())
+        ctx.addMenu(self.file_menu)
+        ctx.addMenu(self.play_menu)
+        ctx.addMenu(self.view_menu)
+        ctx.addMenu(self.settings_menu)
+        ctx.addMenu(self.action_menu)
+        ctx.exec(global_pos)
+
+    def ensure_modal_z_order(self):
+        """리스트 모달(Z=2)이 편집 모달(Z=1)보다 항상 Z축 상위에 출력되도록 보장"""
+        if hasattr(self, 'playlist_modal') and self.playlist_modal and self.playlist_modal.isVisible():
+            self.playlist_modal.raise_()
+            if os.name == "nt":
+                try:
+                    import ctypes
+                    SWP_NOSIZE = 0x0001
+                    SWP_NOMOVE = 0x0002
+                    SWP_NOACTIVATE = 0x0010
+                    HWND_TOPMOST = -1
+                    ctypes.windll.user32.SetWindowPos(
+                        int(self.playlist_modal.winId()),
+                        HWND_TOPMOST,
+                        0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                    )
+                except Exception:
+                    pass
+
+    def on_modal_visibility_changed(self):
+        if hasattr(self, 'player_widget') and self.player_widget:
+            self.player_widget.edit_modal_pinned = bool(hasattr(self, 'edit_modal') and self.edit_modal.isVisible())
+            self.player_widget.apply_auto_hide_settings()
+        self.ensure_modal_z_order()
+
+    def toggle_edit_modal(self, force_open: bool = None):
+        should_open = (not self.edit_modal.isVisible()) if force_open is None else bool(force_open)
+        if not should_open:
+            self.edit_modal.hide()
+        else:
+            g = self.geometry()
+            self.edit_modal.move(max(10, g.left() + 20), max(40, g.top() + 50))
+            self.edit_modal.show()
+            self.edit_modal.raise_()
+            self.ensure_modal_z_order()
+        self.on_modal_visibility_changed()
+
+    def toggle_playlist_modal(self, force_open: bool = None):
+        should_open = (not self.playlist_modal.isVisible()) if force_open is None else bool(force_open)
+        if not should_open:
+            self.playlist_modal.hide()
+        else:
+            g = self.geometry()
+            self.playlist_modal.move(max(10, g.right() - self.playlist_modal.width() - 20), max(40, g.top() + 50))
+            self.playlist_modal.show()
+            self.playlist_modal.raise_()
+            self.ensure_modal_z_order()
+
+    def open_hotkey_modal(self):
+        self.refresh_hotkey_table()
+        self.hotkey_modal.exec()
+
+    def play_prev_video(self):
+        cnt = self.playlist_widget.count()
+        if cnt <= 0:
+            return
+        cur_row = self.playlist_widget.currentRow()
+        target_row = (cur_row - 1) % cnt if cur_row >= 0 else 0
+        it = self.playlist_widget.item(target_row)
+        if it:
+            path = it.data(Qt.ItemDataRole.UserRole)
+            if path and os.path.isfile(path):
+                self.open_and_play_external_file(path)
+
+    def play_next_video(self):
+        cnt = self.playlist_widget.count()
+        if cnt <= 0:
+            return
+        cur_row = self.playlist_widget.currentRow()
+        target_row = (cur_row + 1) % cnt if cur_row >= 0 else 0
+        it = self.playlist_widget.item(target_row)
+        if it:
+            path = it.data(Qt.ItemDataRole.UserRole)
+            if path and os.path.isfile(path):
+                self.open_and_play_external_file(path)
+
     def build_hotkey_settings_page(self):
         opt_hotkey_page = QWidget()
         opt_hotkey_page.setStyleSheet("QWidget { background-color: #252526; color: white; }")
         hk_layout = QVBoxLayout(opt_hotkey_page)
-        hk_layout.setContentsMargins(6, 6, 6, 6)
+        hk_layout.setContentsMargins(10, 10, 10, 10)
         hk_layout.setSpacing(6)
 
         hk_header = QHBoxLayout()
-        self.hk_back_btn = QPushButton("← 뒤로")
+        self.hk_back_btn = QPushButton("닫기")
         self.hk_back_btn.setStyleSheet("""
             QPushButton { background-color: #383838; color: white; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold; }
             QPushButton:hover { background-color: #0078d7; }
         """)
-        self.hk_back_btn.clicked.connect(lambda: self.option_stack.setCurrentIndex(0))
+        self.hk_back_btn.clicked.connect(lambda: self.hotkey_modal.close() if hasattr(self, 'hotkey_modal') else None)
 
         hk_title = QLabel("단축키 설정")
         hk_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2d89ef;")
@@ -528,7 +955,7 @@ class VideoCutterApp(QWidget):
             row_layout.addWidget(name_lbl, 1)
 
             btn_p = QPushButton(info['primary'] if info['primary'] else "None")
-            btn_p.setFixedWidth(55)
+            btn_p.setFixedWidth(65)
             btn_p.setToolTip("기본 단축키 변경")
             btn_p.setStyleSheet("""
                 QPushButton { background-color: #333; color: #2d89ef; border: 1px solid #444; border-radius: 3px; font-size: 10px; font-weight: bold; padding: 2px; }
@@ -537,7 +964,7 @@ class VideoCutterApp(QWidget):
             btn_p.clicked.connect(lambda _, a=action_id, t='primary': self.change_hotkey(a, t))
 
             btn_s = QPushButton(info['secondary'] if info['secondary'] else "None")
-            btn_s.setFixedWidth(55)
+            btn_s.setFixedWidth(65)
             btn_s.setToolTip("보조 단축키 변경")
             btn_s.setStyleSheet("""
                 QPushButton { background-color: #333; color: #888; border: 1px solid #444; border-radius: 3px; font-size: 10px; padding: 2px; }
@@ -714,10 +1141,17 @@ class VideoCutterApp(QWidget):
         anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
 
     def toggle_option_sidebar(self):
-        self.animate_sidebar(self.option_sidebar, target_width=270)
+        self.toggle_edit_modal()
 
     def toggle_playlist_sidebar(self):
-        self.animate_sidebar(self.playlist_sidebar, target_width=240)
+        self.toggle_playlist_modal()
+
+    def update_window_title_for_file(self, file_path: str = ""):
+        """상단 타이틀바에 현재 재생 중인 파일명만 깔끔하게 출력 (미로드 시 Movie Player Lite)"""
+        if file_path and os.path.basename(file_path):
+            self.setWindowTitle(os.path.basename(file_path))
+        else:
+            self.setWindowTitle("Movie Player Lite")
 
     def load_playlist_history(self):
         saved_paths = load_app_data_json("playlist_history.json")
@@ -734,6 +1168,14 @@ class VideoCutterApp(QWidget):
     def save_playlist_history(self):
         save_app_data_json("playlist_history.json", self.playlist_files)
 
+    def _record_playlist_file_id(self, norm_path: str):
+        try:
+            st = os.stat(norm_path)
+            if st.st_ino:
+                self.playlist_file_ids[norm_path.lower()] = st.st_ino
+        except Exception:
+            pass
+
     def add_file_to_playlist(self, file_path: str, load_immediately=True, save_history=True):
         if not file_path:
             return
@@ -747,12 +1189,17 @@ class VideoCutterApp(QWidget):
                 item.setData(Qt.ItemDataRole.UserRole, norm_path)
                 item.setSizeHint(QSize(0, 22))
                 self.playlist_widget.addItem(item)
+            self._record_playlist_file_id(norm_path)
             
             for i in range(self.playlist_widget.count()):
                 it = self.playlist_widget.item(i)
                 user_data = it.data(Qt.ItemDataRole.UserRole)
                 if user_data and os.path.abspath(os.path.normpath(user_data)).replace('\\', '/').lower() == norm_path.lower():
+                    if load_immediately:
+                        self.playlist_widget.clearSelection()
                     self.playlist_widget.setCurrentItem(it)
+                    if load_immediately:
+                        it.setSelected(True)
                     break
 
             if save_history:
@@ -762,6 +1209,30 @@ class VideoCutterApp(QWidget):
 
             if load_immediately:
                 self.fileInput.setText(norm_path)
+
+    def open_and_play_external_file(self, file_path: str):
+        """외부(또는 명령줄/IPC)에서 영상을 열 때: 목록 추가(중복 제외) + 해당 목록 선택 + 즉시 재생"""
+        if not file_path:
+            return
+        norm_path = os.path.abspath(os.path.normpath(file_path)).replace('\\', '/')
+        if not os.path.isfile(norm_path):
+            return
+        self.add_file_to_playlist(norm_path, load_immediately=False, save_history=True)
+        for i in range(self.playlist_widget.count()):
+            it = self.playlist_widget.item(i)
+            user_data = it.data(Qt.ItemDataRole.UserRole)
+            if user_data and os.path.abspath(os.path.normpath(user_data)).replace('\\', '/').lower() == norm_path.lower():
+                self.playlist_widget.clearSelection()
+                self.playlist_widget.setCurrentItem(it)
+                it.setSelected(True)
+                self.playlist_widget.scrollToItem(it)
+                break
+        self._auto_play_next_load = True
+        cur_input = os.path.abspath(os.path.normpath(self.fileInput.text())).replace('\\', '/') if self.fileInput.text().strip() else ""
+        if cur_input.lower() == norm_path.lower():
+            self.on_file_changed(norm_path)
+        else:
+            self.fileInput.setText(norm_path)
 
     def remove_selected_playlist_item(self):
         items = self.playlist_widget.selectedItems()
@@ -774,14 +1245,18 @@ class VideoCutterApp(QWidget):
 
         for item in items:
             file_path = item.data(Qt.ItemDataRole.UserRole)
-            if self.player_widget.video_path_cached == file_path or self.fileInput.text() == file_path:
+            fk = norm_path_key(file_path)
+            if fk and (
+                norm_path_key(self.player_widget.video_path_cached) == fk
+                or norm_path_key(self.fileInput.text()) == fk
+            ):
                 self.player_widget.unload_video()
                 self.fileInput.setText("")
+                self.update_window_title_for_file("")
             
             row = self.playlist_widget.row(item)
             self.playlist_widget.takeItem(row)
-            if file_path in self.playlist_files:
-                self.playlist_files.remove(file_path)
+            self.playlist_files = [p for p in self.playlist_files if norm_path_key(p) != fk]
 
         self.save_playlist_history()
         self.refresh_playlist_colors()
@@ -821,25 +1296,29 @@ class VideoCutterApp(QWidget):
             if not file_path:
                 continue
 
-            if self.player_widget.video_path_cached == file_path or self.fileInput.text() == file_path:
+            fk = norm_path_key(file_path)
+            if fk and (
+                norm_path_key(self.player_widget.video_path_cached) == fk
+                or norm_path_key(self.fileInput.text()) == fk
+            ):
                 self.player_widget.unload_video()
                 self.fileInput.setText("")
+                self.update_window_title_for_file("")
 
             row = self.playlist_widget.row(item)
             self.playlist_widget.takeItem(row)
-            if file_path in self.playlist_files:
-                self.playlist_files.remove(file_path)
+            self.playlist_files = [p for p in self.playlist_files if norm_path_key(p) != fk]
 
             if os.path.exists(file_path):
                 try:
-                    os.remove(file_path)
+                    safe_remove_with_unlock(file_path, player_widget=self.player_widget)
                     deleted_count += 1
                 except Exception as e:
                     print(f"Failed to delete {file_path}: {e}")
 
         self.save_playlist_history()
         self.refresh_playlist_colors()
-        self.show_toast(f"{len(file_paths)}개 파일 삭제 완료")
+        self.show_toast(f"{deleted_count}개 파일 삭제 완료")
 
     def rename_selected_playlist_file(self):
         item = self.playlist_widget.currentItem()
@@ -850,8 +1329,9 @@ class VideoCutterApp(QWidget):
             if item:
                 row = self.playlist_widget.row(item)
                 self.playlist_widget.takeItem(row)
-                if old_file_path and old_file_path in self.playlist_files:
-                    self.playlist_files.remove(old_file_path)
+                if old_file_path:
+                    old_k = norm_path_key(old_file_path)
+                    self.playlist_files = [p for p in self.playlist_files if norm_path_key(p) != old_k]
                     self.save_playlist_history()
                 self.refresh_playlist_colors()
                 self.show_toast("존재하지 않는 유실 파일이어서 재생목록에서 제거되었습니다.")
@@ -880,38 +1360,48 @@ class VideoCutterApp(QWidget):
         new_file_name = new_base + ext
         new_file_path = os.path.join(old_dir, new_file_name).replace('\\', '/')
         
-        if os.path.exists(new_file_path):
+        if os.path.exists(new_file_path) and norm_path_key(new_file_path) != norm_path_key(old_file_path):
             new_file_path = get_unique_filename(new_file_path)
             new_file_name = os.path.basename(new_file_path)
             new_base = os.path.splitext(new_file_name)[0]
             
         try:
-            is_active = (self.player_widget.video_path_cached == old_file_path or self.fileInput.text() == old_file_path)
+            old_key = norm_path_key(old_file_path)
+            is_active = (
+                norm_path_key(self.player_widget.video_path_cached) == old_key
+                or norm_path_key(self.fileInput.text()) == old_key
+            )
+            # 썸네일 추출 자식 프로세스(ffmpeg.exe) 즉시 중단 및 활성 영상 언로드
+            self.player_widget.stop_thumbnail_thread()
             if is_active:
                 self.player_widget.unload_video()
-                
-            os.rename(old_file_path, new_file_path)
+                QApplication.processEvents()
+
+            safe_rename_with_unlock(old_file_path, new_file_path, player_widget=self.player_widget)
             
             item.setText(new_file_name)
             item.setToolTip(new_file_path)
             item.setData(Qt.ItemDataRole.UserRole, new_file_path)
             
-            norm_old = os.path.abspath(os.path.normpath(old_file_path)).lower()
+            self.playlist_file_ids.pop(old_key, None)
+            self._record_playlist_file_id(new_file_path)
+
             for idx, p in enumerate(self.playlist_files):
-                if os.path.abspath(os.path.normpath(p)).lower() == norm_old:
+                if norm_path_key(p) == old_key:
                     self.playlist_files[idx] = new_file_path
             self.save_playlist_history()
             
             for t in self.task_histories:
-                if t.get('video_in') and os.path.abspath(os.path.normpath(t['video_in'])).lower() == norm_old:
+                if t.get('video_in') and norm_path_key(t['video_in']) == old_key:
                     t['video_in'] = new_file_path
             save_app_data_json("task_history.json", self.task_histories)
             
             self.refresh_playlist_colors()
             
             if is_active:
+                self._auto_play_next_load = True
                 self.fileInput.setText(new_file_path)
-                self.player_widget.load_video(new_file_path, auto_play=True)
+                self.update_window_title_for_file(new_file_path)
                 
             self.show_toast(f"'{old_base}' -> '{new_base}' (으)로 변경되었습니다.")
         except Exception as e:
@@ -978,15 +1468,20 @@ class VideoCutterApp(QWidget):
         ]
         
         try:
-            if is_overwrite and (self.player_widget.video_path_cached == target_path or source_file == target_path):
+            target_key = norm_path_key(target_path)
+            if is_overwrite and (
+                norm_path_key(self.player_widget.video_path_cached) == target_key
+                or norm_path_key(source_file) == target_key
+            ):
                 self.player_widget.unload_video()
+                QApplication.processEvents()
                 
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
             
             if is_overwrite:
                 if os.path.exists(target_path):
-                    os.remove(target_path)
-                os.rename(temp_target, target_path)
+                    safe_remove_with_unlock(target_path, player_widget=self.player_widget)
+                safe_rename_with_unlock(temp_target, target_path, player_widget=self.player_widget)
                 
             self.player_widget.reset_transform()
             self.add_file_to_playlist(target_path, load_immediately=True, save_history=True)
@@ -1051,6 +1546,7 @@ class VideoCutterApp(QWidget):
         if self.player_widget.has_video_loaded:
             self.player_widget.unload_video()
             self.fileInput.setText("")
+            self.update_window_title_for_file("")
         self.playlist_widget.clear()
         self.playlist_files.clear()
         self.save_playlist_history()
@@ -1058,8 +1554,7 @@ class VideoCutterApp(QWidget):
     def on_playlist_item_double_clicked(self, item):
         file_path = item.data(Qt.ItemDataRole.UserRole)
         if file_path and os.path.isfile(file_path):
-            self.fileInput.setText(file_path)
-            self.player_widget.load_video(file_path, auto_play=True)
+            self.open_and_play_external_file(file_path)
             self.player_widget.setFocus()
 
     def on_playlist_context_menu(self, pos):
@@ -1107,7 +1602,7 @@ class VideoCutterApp(QWidget):
                 if not first:
                     first = f
         if first:
-            self.fileInput.setText(first)
+            self.open_and_play_external_file(first)
 
     def openFileDialog(self):
         start_dir = self.get_active_working_dir()
@@ -1117,16 +1612,19 @@ class VideoCutterApp(QWidget):
         if files:
             for f in files:
                 self.add_file_to_playlist(f, load_immediately=False)
-            self.fileInput.setText(files[0])
+            self.open_and_play_external_file(files[0])
 
     def on_file_changed(self, text):
         self.is_loading_file = True
+        auto_play = getattr(self, '_auto_play_next_load', False)
+        self._auto_play_next_load = False
         try:
             self.update_output_dir()
             is_exist = os.path.isfile(text)
             if is_exist:
+                self.update_window_title_for_file(text)
                 self.add_file_to_playlist(text, load_immediately=False)
-                self.player_widget.load_video(text, auto_play=False)
+                self.player_widget.load_video(text, auto_play=auto_play)
                 self.save_history(os.path.dirname(text))
                 try:
                     duration_cs, creation_dt = get_media_creation_time_and_duration(text)
@@ -1168,6 +1666,12 @@ class VideoCutterApp(QWidget):
                     self.startInput.max_val_cs = 35999999
                     self.endInput.max_val_cs = 35999999
             else:
+                if text:
+                    base_name = os.path.splitext(os.path.basename(text))[0]
+                    if base_name:
+                        self.nameInput.setText(base_name)
+                else:
+                    self.update_window_title_for_file("")
                 self.original_duration_cs = 35999999
                 self.original_creation_dt = None
                 self.startInput.max_val_cs = 35999999
@@ -1650,6 +2154,7 @@ class VideoCutterApp(QWidget):
 
     def on_hud_check_toggled(self, checked):
         self.player_widget.force_hud_visible = checked
+        self.sync_menu_check_states()
         self.player_widget.update_hud()
 
     def on_input_modified(self):
@@ -1675,8 +2180,20 @@ class VideoCutterApp(QWidget):
         if event.type() == QEvent.Type.ActivationChange:
             if hasattr(self, 'player_widget') and self.player_widget:
                 self.player_widget.update_hud()
+            if self.isActiveWindow():
+                self.ensure_modal_z_order()
 
     def keyPressEvent(self, event: QKeyEvent):
+        # Alt 키가 눌리면 상단 오버레이 메뉴바 표시
+        if event.key() == Qt.Key.Key_Alt:
+            if hasattr(self, 'top_menu_bar') and self.top_menu_bar:
+                self.top_menu_bar.show()
+                self.top_menu_bar.raise_()
+                self.player_widget.update_transform_badge_position()
+                self.player_widget.hide_timer.start()
+            super().keyPressEvent(event)
+            return
+
         focus_w = QApplication.focusWidget()
         is_editing_text = isinstance(focus_w, QLineEdit)
 
@@ -1702,34 +2219,57 @@ class VideoCutterApp(QWidget):
             return
 
         if matched_action == "toggle_option":
-            self.toggle_option_sidebar()
+            self.toggle_edit_modal()
         elif matched_action == "toggle_playlist":
-            self.toggle_playlist_sidebar()
+            self.toggle_playlist_modal()
         elif matched_action == "play_pause":
             self.player_widget.toggle_play()
         elif matched_action == "step_1s_prev":
             self.player_widget.step_time(-1000)
         elif matched_action == "step_1s_next":
             self.player_widget.step_time(1000)
+        elif matched_action == "step_5s_prev":
+            self.player_widget.step_time(-5000)
+        elif matched_action == "step_5s_next":
+            self.player_widget.step_time(5000)
         elif matched_action == "step_frame_prev":
             self.player_widget.step_frame(forward=False)
         elif matched_action == "step_frame_next":
             self.player_widget.step_frame(forward=True)
+        elif matched_action == "speed_up":
+            self.player_widget.change_playback_rate(0.25)
+        elif matched_action == "speed_down":
+            self.player_widget.change_playback_rate(-0.25)
+        elif matched_action == "speed_reset":
+            self.player_widget.reset_playback_rate()
+        elif matched_action == "prev_video":
+            self.play_prev_video()
+        elif matched_action == "next_video":
+            self.play_next_video()
+        elif matched_action == "volume_up":
+            self.player_widget.change_volume(0.05)
+        elif matched_action == "volume_down":
+            self.player_widget.change_volume(-0.05)
+        elif matched_action == "toggle_mute":
+            self.player_widget.toggle_mute()
+        elif matched_action == "zoom_in":
+            self.player_widget.zoom_in()
+        elif matched_action == "zoom_out":
+            self.player_widget.zoom_out()
+        elif matched_action == "zoom_reset":
+            self.player_widget.reset_zoom_pan()
+        elif matched_action == "pan_up":
+            self.player_widget.pan_view(0, -20)
+        elif matched_action == "pan_down":
+            self.player_widget.pan_view(0, 20)
+        elif matched_action == "pan_left":
+            self.player_widget.pan_view(-20, 0)
+        elif matched_action == "pan_right":
+            self.player_widget.pan_view(20, 0)
         elif matched_action == "toggle_fullscreen":
             self.cycle_fullscreen_mode()
         elif matched_action == "exit_fullscreen":
-            self.fullscreen_stage = 0
-            self.setWindowFlags(Qt.WindowType.Window)
-            self.showNormal()
-            if hasattr(self, 'option_sidebar'):
-                self.option_sidebar.setVisible(getattr(self, 'option_sidebar_visible', True))
-            if hasattr(self, 'playlist_sidebar'):
-                self.playlist_sidebar.setVisible(getattr(self, 'playlist_sidebar_visible', True))
-            if hasattr(self.player_widget, 'trimming_slider'):
-                self.player_widget.trimming_slider.show()
-            if self.layout():
-                self.layout().setContentsMargins(10, 10, 10, 10)
-            self.player_widget.set_fullscreen_mode(is_video_only=False, stretch_fill=False)
+            self.set_screen_mode(0)
         elif matched_action == "show_properties":
             self.view_source_properties()
         elif matched_action == "delete_playlist_item":
@@ -1748,80 +2288,307 @@ class VideoCutterApp(QWidget):
             self.save_transform_video()
         elif matched_action == "toggle_time_label":
             self.player_widget.toggle_time_label()
+        elif matched_action == "toggle_hud":
+            self.player_widget.toggle_hud_overlay()
         else:
             super().keyPressEvent(event)
 
-    def cycle_fullscreen_mode(self):
-        if not hasattr(self, 'fullscreen_stage'):
-            self.fullscreen_stage = 0
-        self.fullscreen_stage = (self.fullscreen_stage + 1) % 4
-
+    def set_screen_mode(self, stage: int):
+        """화면 모드 직접 전환: 0=기본화면, 1=표준 전체화면, 2=전체화면(비율유지), 3=꽉찬화면"""
+        self.fullscreen_stage = stage % 4
         root_layout = self.layout()
+        if root_layout:
+            root_layout.setContentsMargins(0, 0, 0, 0)
+            root_layout.setSpacing(0)
 
         if self.fullscreen_stage == 0:
-            # Stage 0: Normal window mode (전체화면 안함)
             self.setWindowFlags(Qt.WindowType.Window)
             self.showNormal()
             set_win32_window_rounding(int(self.winId()), enable_rounding=True)
-            if hasattr(self, 'option_sidebar'):
-                self.option_sidebar.setVisible(getattr(self, 'option_sidebar_visible', True))
-            if hasattr(self, 'playlist_sidebar'):
-                self.playlist_sidebar.setVisible(getattr(self, 'playlist_sidebar_visible', True))
-            if hasattr(self.player_widget, 'trimming_slider'):
-                self.player_widget.trimming_slider.show()
-            if root_layout:
-                root_layout.setContentsMargins(10, 10, 10, 10)
-                root_layout.setSpacing(10)
             self.player_widget.set_fullscreen_mode(is_video_only=False, stretch_fill=False)
-            self.show_toast("전체화면 해제 (기본 창 모드)")
+            self.player_widget.apply_auto_hide_settings()
+            self.show_toast("기본화면 모드")
 
         elif self.fullscreen_stage == 1:
-            # Stage 1: Standard Fullscreen with UI controls (표준 전체화면)
             self.setWindowFlags(Qt.WindowType.Window)
             self.showFullScreen()
             set_win32_window_rounding(int(self.winId()), enable_rounding=True)
-            if hasattr(self, 'option_sidebar'):
-                self.option_sidebar.setVisible(getattr(self, 'option_sidebar_visible', True))
-            if hasattr(self, 'playlist_sidebar'):
-                self.playlist_sidebar.setVisible(getattr(self, 'playlist_sidebar_visible', True))
-            if hasattr(self.player_widget, 'trimming_slider'):
-                self.player_widget.trimming_slider.show()
-            if root_layout:
-                root_layout.setContentsMargins(10, 10, 10, 10)
-                root_layout.setSpacing(10)
             self.player_widget.set_fullscreen_mode(is_video_only=False, stretch_fill=False)
-            self.show_toast("전체화면 모드 [1/3] (표준 전체화면 - UI 컨트롤 포함)")
+            self.player_widget.apply_auto_hide_settings()
+            self.show_toast("전체화면 모드 [1/3] (표준 전체화면)")
 
         elif self.fullscreen_stage in (2, 3):
-            # Stage 2 & 3: Frameless 100% Physical Screen Video-Only Fullscreen (Taskbar covered, zero rounding, zero gap)
             stretch = (self.fullscreen_stage == 3)
             self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
-            
-            # Remove Windows 11 DWM rounded corners
             set_win32_window_rounding(int(self.winId()), enable_rounding=False)
-            
-            # Hide sidebars and timeline
-            if hasattr(self, 'option_sidebar'):
-                self.option_sidebar.hide()
-            if hasattr(self, 'playlist_sidebar'):
-                self.playlist_sidebar.hide()
-            if hasattr(self.player_widget, 'trimming_slider'):
-                self.player_widget.trimming_slider.hide()
-            
-            if root_layout:
-                root_layout.setContentsMargins(0, 0, 0, 0)
-                root_layout.setSpacing(0)
-                
             self.player_widget.set_fullscreen_mode(is_video_only=True, stretch_fill=stretch)
-            
-            # Expand to physical monitor screen geometry (covering Windows taskbar completely)
+            self.player_widget.apply_auto_hide_settings()
             screen = self.screen() or QApplication.primaryScreen()
             if screen:
                 self.setGeometry(screen.geometry())
             self.showFullScreen()
-            
-            msg = "전체화면 모드 [3/3] (프레임/메뉴/작업표시줄 무시 - 100% 꽉 찬 동영상 모드)" if stretch else "전체화면 모드 [2/3] (프레임/메뉴/작업표시줄 무시 - 비율 유지 동영상 모드)"
+            msg = "꽉찬화면 모드 (100% 꽉 찬 동영상 모드)" if stretch else "전체화면 모드 (비율 유지 동영상 모드)"
             self.show_toast(msg)
 
+        self.sync_menu_check_states()
         self.raise_()
         self.activateWindow()
+        self.ensure_modal_z_order()
+
+    def cycle_fullscreen_mode(self):
+        if not hasattr(self, 'fullscreen_stage'):
+            self.fullscreen_stage = 0
+        self.set_screen_mode((self.fullscreen_stage + 1) % 4)
+
+    def init_single_instance_server(self):
+        """단일 인스턴스 IPC 서버 초기화: 외부에서 새 동영상 실행 시 기존 창에서 받아 처리"""
+        try:
+            QLocalServer.removeServer(SINGLE_INSTANCE_SERVER_NAME)
+            self.local_server = QLocalServer(self)
+            self.local_server.newConnection.connect(self.on_new_instance_connection)
+            self.local_server.listen(SINGLE_INSTANCE_SERVER_NAME)
+        except Exception as e:
+            logging.warning(f"Failed to start single-instance server: {e}")
+
+    def on_new_instance_connection(self):
+        """새로 실행된 프로세스로부터 전달받은 동영상 경로를 목록에 추가/선택 후 즉시 재생"""
+        if not self.local_server:
+            return
+        while self.local_server.hasPendingConnections():
+            conn = self.local_server.nextPendingConnection()
+            if not conn:
+                continue
+            if conn.bytesAvailable() == 0:
+                conn.waitForReadyRead(500)
+            raw_data = bytes(conn.readAll()).decode("utf-8", errors="ignore")
+            conn.write(b"OK")
+            conn.flush()
+            conn.waitForBytesWritten(200)
+            conn.disconnectFromServer()
+
+            if self.isMinimized():
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+
+            if raw_data:
+                try:
+                    payload = json.loads(raw_data)
+                    files = payload.get("files", [])
+                    valid_files = [f for f in files if f and os.path.isfile(f)]
+                    if valid_files:
+                        for extra_f in valid_files[1:]:
+                            self.add_file_to_playlist(extra_f, load_immediately=False, save_history=True)
+                        self.open_and_play_external_file(valid_files[0])
+                        self.player_widget.setFocus()
+                except Exception as e:
+                    logging.error(f"Failed to process IPC message: {e}")
+
+    def init_external_file_watcher(self):
+        """재생 중인 파일 및 재생목록 파일들의 외부 이름변경/삭제 실시간 감시 타이머"""
+        self.fs_sync_timer = QTimer(self)
+        self.fs_sync_timer.setInterval(800)
+        self.fs_sync_timer.timeout.connect(self.check_external_file_changes)
+        self.fs_sync_timer.start()
+
+    def _find_renamed_file_by_id(self, old_norm_path: str):
+        target_ino = self.playlist_file_ids.get(old_norm_path.lower())
+        if not target_ino:
+            return None
+        parent_dir = os.path.dirname(old_norm_path)
+        if not parent_dir or not os.path.isdir(parent_dir):
+            return None
+        try:
+            for entry in os.scandir(parent_dir):
+                if entry.is_file():
+                    try:
+                        if entry.stat().st_ino == target_ino:
+                            return os.path.abspath(os.path.normpath(entry.path)).replace('\\', '/')
+                    except OSError:
+                        continue
+        except Exception:
+            pass
+        return None
+
+    def apply_external_file_rename(self, old_path: str, new_path: str):
+        """외부(탐색기 등)에서 변경된 파일명을 재생목록, 출력 파일명(nameInput), 작업 히스토리까지 일괄 반영"""
+        norm_old = os.path.abspath(os.path.normpath(old_path)).replace('\\', '/')
+        norm_new = os.path.abspath(os.path.normpath(new_path)).replace('\\', '/')
+        if norm_old.lower() == norm_new.lower():
+            return
+
+        old_base = os.path.splitext(os.path.basename(norm_old))[0]
+        new_file_name = os.path.basename(norm_new)
+        new_base = os.path.splitext(new_file_name)[0]
+
+        self.playlist_file_ids.pop(norm_old.lower(), None)
+        self._record_playlist_file_id(norm_new)
+
+        # 1. 재생목록 내부 리스트 및 UI 위젯 갱신 (중복 방지 포함)
+        new_playlist_files = []
+        seen_lower = set()
+        for p in self.playlist_files:
+            np = os.path.abspath(os.path.normpath(p)).replace('\\', '/')
+            if np.lower() == norm_old.lower():
+                np = norm_new
+            if np.lower() not in seen_lower:
+                seen_lower.add(np.lower())
+                new_playlist_files.append(np)
+        self.playlist_files = new_playlist_files
+
+        found_existing_new = False
+        for i in range(self.playlist_widget.count() - 1, -1, -1):
+            it = self.playlist_widget.item(i)
+            u_path = it.data(Qt.ItemDataRole.UserRole)
+            if not u_path:
+                continue
+            nu = os.path.abspath(os.path.normpath(u_path)).replace('\\', '/')
+            if nu.lower() == norm_new.lower():
+                if found_existing_new:
+                    self.playlist_widget.takeItem(i)
+                else:
+                    found_existing_new = True
+            elif nu.lower() == norm_old.lower():
+                if found_existing_new:
+                    self.playlist_widget.takeItem(i)
+                else:
+                    it.setText(new_file_name)
+                    it.setToolTip(norm_new)
+                    it.setData(Qt.ItemDataRole.UserRole, norm_new)
+                    found_existing_new = True
+
+        self.save_playlist_history()
+
+        # 2. 작업 히스토리(task_history.json) 내 원본 경로 일괄 갱신
+        history_updated = False
+        if hasattr(self, 'task_histories') and isinstance(self.task_histories, list):
+            for t in self.task_histories:
+                v_in = t.get('video_in')
+                if v_in and os.path.abspath(os.path.normpath(v_in)).replace('\\', '/').lower() == norm_old.lower():
+                    t['video_in'] = norm_new
+                    history_updated = True
+            if history_updated:
+                save_app_data_json("task_history.json", self.task_histories)
+                self.load_task_history()
+
+        # 3. 현재 로드/재생 중인 파일인 경우 재생 중단 없이 경로, 타이틀바, 출력 파일명(nameInput) 동기화
+        cached = self.player_widget.video_path_cached
+        cur_input = self.fileInput.text().strip()
+        is_active = (
+            (cached and os.path.abspath(os.path.normpath(cached)).replace('\\', '/').lower() == norm_old.lower()) or
+            (cur_input and os.path.abspath(os.path.normpath(cur_input)).replace('\\', '/').lower() == norm_old.lower())
+        )
+        if is_active:
+            self.player_widget.video_path_cached = norm_new
+            self.fileInput.blockSignals(True)
+            self.fileInput.setText(norm_new)
+            self.fileInput.blockSignals(False)
+            self.nameInput.setText(new_base)
+            self.update_window_title_for_file(norm_new)
+            self.update_output_dir()
+            self.check_target_file_exists()
+            self.update_timeline_cut_highlights()
+
+        self.refresh_playlist_colors()
+        self.show_toast(f"외부 이름 변경 반영: '{old_base}' -> '{new_base}'")
+
+    def handle_external_file_deleted(self, deleted_path: str, is_active: bool = False):
+        """외부에서 파일이 삭제되었을 때: 재생목록에서 즉시 제거하고, 재생 중인 화면은 정지할 때까지 유지"""
+        norm_del = os.path.abspath(os.path.normpath(deleted_path)).replace('\\', '/')
+        self.playlist_file_ids.pop(norm_del.lower(), None)
+
+        removed_any = False
+        for i in range(self.playlist_widget.count() - 1, -1, -1):
+            it = self.playlist_widget.item(i)
+            u_path = it.data(Qt.ItemDataRole.UserRole)
+            if u_path and os.path.abspath(os.path.normpath(u_path)).replace('\\', '/').lower() == norm_del.lower():
+                self.playlist_widget.takeItem(i)
+                removed_any = True
+
+        self.playlist_files = [
+            p for p in self.playlist_files
+            if os.path.abspath(os.path.normpath(p)).replace('\\', '/').lower() != norm_del.lower()
+        ]
+        if removed_any:
+            self.save_playlist_history()
+            self.refresh_playlist_colors()
+
+        file_name = os.path.basename(norm_del)
+        if is_active:
+            from PyQt6.QtMultimedia import QMediaPlayer
+            self.player_widget.external_deleted_pending_unload = True
+            if self.player_widget.media_player.playbackState() == QMediaPlayer.PlaybackState.StoppedState:
+                self.player_widget.unload_video()
+                self.fileInput.blockSignals(True)
+                self.fileInput.setText("")
+                self.fileInput.blockSignals(False)
+                self.update_window_title_for_file("")
+            self.show_toast(f"외부에서 '{file_name}' 삭제됨: 목록에서 제거 (정지 시까지 화면 유지)")
+        elif removed_any:
+            self.show_toast(f"외부에서 '{file_name}' 파일이 삭제되어 목록에서 제거되었습니다.")
+
+    def check_external_file_changes(self):
+        """주기적으로 재생 중인 파일 핸들 및 재생목록 파일의 외부 이름변경/삭제 여부를 점검"""
+        if getattr(self, 'is_loading_file', False):
+            return
+
+        # 1. 현재 플레이어에 로드/재생 중인 파일 점검
+        if self.player_widget.has_video_loaded and self.player_widget.video_path_cached:
+            cached = os.path.abspath(os.path.normpath(self.player_widget.video_path_cached)).replace('\\', '/')
+            if not getattr(self.player_widget, 'external_deleted_pending_unload', False):
+                live_path = self.player_widget.get_current_handle_path()
+                if live_path:
+                    in_recycle = ("/$recycle.bin/" in live_path.lower())
+                    exists_now = os.path.exists(live_path)
+                    if in_recycle or not exists_now:
+                        self.handle_external_file_deleted(cached, is_active=True)
+                    elif live_path.lower() != cached.lower():
+                        self.apply_external_file_rename(cached, live_path)
+                else:
+                    if not os.path.exists(cached):
+                        renamed_path = self._find_renamed_file_by_id(cached)
+                        if renamed_path and "/$recycle.bin/" not in renamed_path.lower():
+                            self.apply_external_file_rename(cached, renamed_path)
+                        else:
+                            self.handle_external_file_deleted(cached, is_active=True)
+
+        # 2. 재생목록 내 비활성 파일들 점검
+        active_lower = (
+            os.path.abspath(os.path.normpath(self.player_widget.video_path_cached)).replace('\\', '/').lower()
+            if self.player_widget.video_path_cached else ""
+        )
+        for p in list(self.playlist_files):
+            norm_p = os.path.abspath(os.path.normpath(p)).replace('\\', '/')
+            if norm_p.lower() == active_lower:
+                continue
+            if not os.path.exists(norm_p):
+                renamed_path = self._find_renamed_file_by_id(norm_p)
+                if renamed_path and "/$recycle.bin/" not in renamed_path.lower():
+                    self.apply_external_file_rename(norm_p, renamed_path)
+                else:
+                    self.handle_external_file_deleted(norm_p, is_active=False)
+
+    def closeEvent(self, event):
+        """창 종료 시 백그라운드 타이머, 스레드, 모달 창, IPC 서버 및 미디어 핸들을 모두 해제하고 프로세스를 완전 종료"""
+        try:
+            if hasattr(self, 'fs_sync_timer') and self.fs_sync_timer:
+                self.fs_sync_timer.stop()
+            if hasattr(self, 'local_server') and self.local_server:
+                self.local_server.close()
+                QLocalServer.removeServer(SINGLE_INSTANCE_SERVER_NAME)
+            if hasattr(self, 'edit_modal') and self.edit_modal:
+                self.edit_modal.close()
+            if hasattr(self, 'playlist_modal') and self.playlist_modal:
+                self.playlist_modal.close()
+            if hasattr(self, 'hotkey_modal') and self.hotkey_modal:
+                self.hotkey_modal.close()
+            if hasattr(self, 'player_widget') and self.player_widget:
+                self.player_widget.cleanup()
+            if hasattr(self, 'toast_label') and self.toast_label:
+                self.toast_label.close()
+        except Exception as e:
+            logging.error(f"Error during closeEvent cleanup: {e}")
+        super().closeEvent(event)
+        app = QApplication.instance()
+        if app:
+            app.quit()

@@ -53,13 +53,74 @@ class FilmstripWidget(QWidget):
 
 
 class ThumbnailGeneratorThread(QThread):
-    """FFmpeg를 이용하여 동영상의 주요 씬 썸네일을 비동기로 생성하는 스레드"""
+    """FFmpeg를 이용하여 동영상의 주요 씬 썸네일을 비동기로 생성하는 스레드 (즉시 중단 및 서브프로세스 강제 종료 지원)"""
     thumbnails_ready = pyqtSignal(list)
+    _active_threads = set()
 
     def __init__(self, video_path: str, count: int = 10, parent=None):
         super().__init__(parent)
         self.video_path = video_path
         self.count = count
+        self._proc = None
+        ThumbnailGeneratorThread._active_threads.add(self)
+
+    def _kill_proc(self):
+        proc = self._proc
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+            except Exception as e:
+                logging.debug(f"[ThumbThread] Proc kill error: {e}")
+            finally:
+                self._proc = None
+
+    def stop_and_kill(self):
+        """스레드 중단 요청 및 실행 중인 ffmpeg.exe 자식 프로세스 즉시 강제 종료 (파일 점유 즉시 해제)"""
+        self.requestInterruption()
+        self._kill_proc()
+        if self.isRunning():
+            self.wait(400)
+
+    @classmethod
+    def kill_all(cls, target_path: str = None) -> int:
+        """현재 실행 중인 모든(또는 특정 파일 대상) 썸네일 추출 ffmpeg.exe 프로세스를 즉시 종료"""
+        from src.core.lock_resolver import norm_path_key
+        target_key = norm_path_key(target_path) if target_path else ""
+        killed = 0
+        for th in list(cls._active_threads):
+            try:
+                if not target_key or norm_path_key(th.video_path) == target_key:
+                    th.stop_and_kill()
+                    killed += 1
+            except Exception:
+                pass
+        return killed
+
+    def _run_ffmpeg_cancellable(self, cmd: list[str]) -> bool:
+        if self.isInterruptionRequested():
+            return False
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+            )
+            while self._proc is not None and self._proc.poll() is None:
+                if self.isInterruptionRequested():
+                    self._kill_proc()
+                    return False
+                self.msleep(30)
+            return True
+        except Exception as e:
+            logging.debug(f"[ThumbThread] Popen error: {e}")
+            self._kill_proc()
+            return False
+        finally:
+            self._kill_proc()
 
     def run(self):
         try:
@@ -69,11 +130,7 @@ class ThumbnailGeneratorThread(QThread):
             duration_cs, _ = get_media_creation_time_and_duration(self.video_path)
             duration_sec = duration_cs / 100.0
             logging.info(f"[ThumbThread] Duration: {duration_sec}s")
-            if duration_sec <= 0:
-                logging.warning("[ThumbThread] Invalid duration_sec <= 0")
-                return
-
-            if self.isInterruptionRequested():
+            if duration_sec <= 0 or self.isInterruptionRequested():
                 return
 
             ffmpeg_bin = get_ffmpeg_path()
@@ -81,39 +138,68 @@ class ThumbnailGeneratorThread(QThread):
             os.makedirs(temp_dir, exist_ok=True)
 
             vid_hash = abs(hash(self.video_path)) % 100000
-            interval = max(0.5, duration_sec / float(self.count))
-            fps_val = 1.0 / interval
+            for i in range(1, self.count + 1):
+                old_p = os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg")
+                if os.path.exists(old_p):
+                    try:
+                        os.remove(old_p)
+                    except OSError:
+                        pass
 
+            interval = max(0.2, duration_sec / float(self.count))
+            fps_val = 1.0 / interval
             out_pattern = os.path.join(temp_dir, f"thumb_{vid_hash}_%02d.jpg").replace('\\', '/')
 
-            cmd = [
-                ffmpeg_bin, "-y",
-                "-i", self.video_path,
-                "-vf", f"fps={fps_val:.4f},scale=120:68",
-                "-vframes", str(self.count),
-                out_pattern
-            ]
-            res = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-            )
+            # 긴 영상(8초 이상)은 키프레임 고속 디코딩(-skip_frame nokey)을 우선 적용하여
+            # 4K/HEVC 영상의 파일 점유 시간을 수십 초에서 1초 미만으로 단축
+            if duration_sec >= 8.0:
+                fast_cmd = [
+                    ffmpeg_bin, "-y",
+                    "-skip_frame", "nokey",
+                    "-i", self.video_path,
+                    "-vf", f"fps={fps_val:.4f},scale=120:68",
+                    "-vframes", str(self.count),
+                    out_pattern
+                ]
+                self._run_ffmpeg_cancellable(fast_cmd)
 
             if self.isInterruptionRequested():
                 return
 
-            paths = []
-            for i in range(1, self.count + 1):
-                p = os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg").replace('\\', '/')
-                if os.path.exists(p) and os.path.getsize(p) > 0:
-                    paths.append(p)
+            paths = [
+                os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg").replace('\\', '/')
+                for i in range(1, self.count + 1)
+                if os.path.exists(os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg"))
+                and os.path.getsize(os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg")) > 0
+            ]
+
+            # 짧은 영상이거나 키프레임이 부족해 썸네일이 3장 미만인 경우 일반 추출 수행
+            if len(paths) < min(3, self.count) and not self.isInterruptionRequested():
+                cmd = [
+                    ffmpeg_bin, "-y",
+                    "-i", self.video_path,
+                    "-vf", f"fps={fps_val:.4f},scale=120:68",
+                    "-vframes", str(self.count),
+                    out_pattern
+                ]
+                self._run_ffmpeg_cancellable(cmd)
+                if self.isInterruptionRequested():
+                    return
+                paths = [
+                    os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg").replace('\\', '/')
+                    for i in range(1, self.count + 1)
+                    if os.path.exists(os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg"))
+                    and os.path.getsize(os.path.join(temp_dir, f"thumb_{vid_hash}_{i:02d}.jpg")) > 0
+                ]
 
             logging.info(f"[ThumbThread] Extracted {len(paths)} / {self.count} thumbnails")
             if paths and not self.isInterruptionRequested():
                 self.thumbnails_ready.emit(paths)
         except Exception as e:
             logging.error(f"[ThumbThread] Exception: {e}", exc_info=True)
+        finally:
+            self._kill_proc()
+            ThumbnailGeneratorThread._active_threads.discard(self)
 
 
 class JumpSlider(QSlider):
