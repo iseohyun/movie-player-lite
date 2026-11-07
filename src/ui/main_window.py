@@ -10,7 +10,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QCheckBox, QRadioButton, QButtonGroup, QComboBox, QFrame, QStackedWidget,
     QListWidget, QListWidgetItem, QMenu, QMenuBar, QDialog, QFileDialog, QMessageBox,
-    QInputDialog, QScrollArea, QApplication, QStyledItemDelegate, QStyle, QAbstractItemView
+    QInputDialog, QScrollArea, QApplication, QStyledItemDelegate, QStyle, QAbstractItemView,
+    QSlider, QColorDialog
 )
 from PyQt6.QtCore import Qt, QStandardPaths, QTimer, QPropertyAnimation, QEasingCurve, QObject, QEvent, QSize, QPoint
 from PyQt6.QtGui import QIcon, QKeySequence, QKeyEvent, QAction, QColor, QPen, QPixmap, QPainter
@@ -30,7 +31,9 @@ from src.core.lock_resolver import (
     safe_remove_with_unlock,
 )
 from src.ui.widgets.line_edit import ArrowKeyLineEdit
-from src.ui.widgets.player import EmbeddedVideoPlayer
+from src.ui.widgets.player import (
+    EmbeddedVideoPlayer, PEN_SHAPE_LABELS, PEN_COLOR_PRESETS, PEN_DURATION_PRESETS
+)
 from src.ui.dialogs.key_capture import KeyCaptureDialog
 
 SINGLE_INSTANCE_SERVER_NAME = "MoviePlayerLite_SingleInstance_IPC_v1"
@@ -54,6 +57,29 @@ def create_blue_check_icon(checked: bool) -> QIcon:
         painter.drawLine(4, 8, 7, 11)
         painter.drawLine(7, 11, 12, 5)
         painter.end()
+    return QIcon(pm)
+
+
+def create_color_swatch_icon(color_hex: str, checked: bool = False) -> QIcon:
+    """펜 색상 메뉴 항목에 표시할 컬러칩 + 선택 체크 아이콘 생성"""
+    pm = QPixmap(16, 16)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    c = QColor(color_hex)
+    border_col = QColor("#ffffff") if checked else QColor("#666666")
+    painter.setBrush(c)
+    painter.setPen(QPen(border_col, 1.5 if checked else 1.0))
+    painter.drawRoundedRect(1, 1, 14, 14, 3, 3)
+    if checked:
+        check_col = QColor("#000000") if c.lightness() > 165 else QColor("#ffffff")
+        pen = QPen(check_col, 2.0)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(4, 8, 7, 11)
+        painter.drawLine(7, 11, 12, 5)
+    painter.end()
     return QIcon(pm)
 
 
@@ -532,6 +558,12 @@ class VideoCutterApp(QWidget):
         hk_modal_layout.setContentsMargins(0, 0, 0, 0)
         hk_modal_layout.addWidget(self.build_hotkey_settings_page())
 
+        # -------------------------------------------------------------
+        # 4. 그리기 도구 팔레트 플로팅 모달 (단축키: Shift+D)
+        # -------------------------------------------------------------
+        self.build_draw_modal()
+        self.load_draw_settings()
+
         # Radio buttons connections
         self.radioSame.toggled.connect(self.on_radio_changed)
         self.radioOutput.toggled.connect(self.on_radio_changed)
@@ -766,6 +798,86 @@ class VideoCutterApp(QWidget):
         self.act_open_edit_modal.triggered.connect(lambda: self.toggle_edit_modal())
         self.action_menu.addAction(self.act_open_edit_modal)
 
+        # 6. 그리기 메뉴
+        self.draw_menu = self.top_menu_bar.addMenu("그리기(&D)")
+        self.act_toggle_draw_mode = QAction("그리기 모드 ON/OFF (D)", self)
+        self.act_toggle_draw_mode.triggered.connect(self.player_widget.toggle_drawing_mode)
+        self.act_open_draw_modal = QAction("그리기 도구 팔레트 열기 (Shift+D)", self)
+        self.act_open_draw_modal.triggered.connect(lambda: self.toggle_draw_modal())
+        self.act_undo_draw = QAction("마지막 획 취소 (Ctrl+Z)", self)
+        self.act_undo_draw.triggered.connect(self.player_widget.undo_last_drawing)
+        self.act_clear_draw = QAction("모두 지우기 (C)", self)
+        self.act_clear_draw.triggered.connect(lambda: self.player_widget.clear_drawings())
+
+        self.draw_menu.addAction(self.act_toggle_draw_mode)
+        self.draw_menu.addAction(self.act_open_draw_modal)
+        self.draw_menu.addAction(self.act_undo_draw)
+        self.draw_menu.addAction(self.act_clear_draw)
+        self.draw_menu.addSeparator()
+
+        # 6-1. 펜 색상 서브메뉴
+        self.draw_color_menu = self.draw_menu.addMenu("펜 색상")
+        self.draw_color_actions = {}
+        for name, hx in PEN_COLOR_PRESETS:
+            act = QAction(f"{name} ({hx})", self)
+            act.triggered.connect(lambda _, col=hx: self.player_widget.set_pen_color(col))
+            self.draw_color_menu.addAction(act)
+            self.draw_color_actions[hx.lower()] = act
+        self.draw_color_menu.addSeparator()
+        self.act_custom_pen_color = QAction("사용자 지정 색상 선택...", self)
+        self.act_custom_pen_color.triggered.connect(self.choose_custom_pen_color)
+        self.draw_color_menu.addAction(self.act_custom_pen_color)
+
+        # 6-2. 펜 모양 서브메뉴
+        self.draw_shape_menu = self.draw_menu.addMenu("펜 모양")
+        self.draw_shape_actions = {}
+        for sh_key, sh_label in PEN_SHAPE_LABELS.items():
+            act = QAction(sh_label, self)
+            act.triggered.connect(lambda _, k=sh_key: self.player_widget.set_pen_shape(k))
+            self.draw_shape_menu.addAction(act)
+            self.draw_shape_actions[sh_key] = act
+
+        # 6-3. 펜 두께 서브메뉴
+        self.draw_width_menu = self.draw_menu.addMenu("펜 두께")
+        self.draw_width_actions = {}
+        for w_px, w_desc in (
+            (2, "2px (아주 얇게)"),
+            (4, "4px (얇게)"),
+            (5, "5px (기본)"),
+            (8, "8px (보통)"),
+            (12, "12px (굵게)"),
+            (18, "18px (아주 굵게)"),
+            (26, "26px (형광마커)"),
+        ):
+            act = QAction(w_desc, self)
+            act.triggered.connect(lambda _, w=w_px: self.player_widget.set_pen_width(w))
+            self.draw_width_menu.addAction(act)
+            self.draw_width_actions[w_px] = act
+
+        # 6-4. 펜 투명도 서브메뉴
+        self.draw_opacity_menu = self.draw_menu.addMenu("펜 투명도")
+        self.draw_opacity_actions = {}
+        for op_val, op_desc in (
+            (1.00, "100% (불투명)"),
+            (0.90, "90% (기본)"),
+            (0.75, "75% (반투명)"),
+            (0.50, "50% (연하게)"),
+            (0.30, "30% (매우 연하게)"),
+        ):
+            act = QAction(op_desc, self)
+            act.triggered.connect(lambda _, op=op_val: self.player_widget.set_pen_opacity(op))
+            self.draw_opacity_menu.addAction(act)
+            self.draw_opacity_actions[op_val] = act
+
+        # 6-5. 펜 유지 시간 서브메뉴
+        self.draw_duration_menu = self.draw_menu.addMenu("펜 유지 시간")
+        self.draw_duration_actions = {}
+        for dur_sec, dur_desc in PEN_DURATION_PRESETS:
+            act = QAction(dur_desc, self)
+            act.triggered.connect(lambda _, d=dur_sec: self.player_widget.set_pen_duration(d))
+            self.draw_duration_menu.addAction(act)
+            self.draw_duration_actions[dur_sec] = act
+
         self.top_menu_bar.hide()
 
     def layout_top_menu_bar(self):
@@ -790,6 +902,34 @@ class VideoCutterApp(QWidget):
         self.act_screen_full.setIcon(create_blue_check_icon(stage in (1, 2)))
         self.act_screen_stretch.setIcon(create_blue_check_icon(stage == 3))
 
+        # 그리기 메뉴 체크 상태 동기화
+        if hasattr(self, 'act_toggle_draw_mode'):
+            self.act_toggle_draw_mode.setIcon(create_blue_check_icon(self.player_widget.drawing_enabled))
+        if hasattr(self, 'draw_color_actions'):
+            cur_col = self.player_widget.pen_color.lower()
+            matched_preset = False
+            for hx, act in self.draw_color_actions.items():
+                is_sel = (hx == cur_col)
+                if is_sel:
+                    matched_preset = True
+                act.setIcon(create_color_swatch_icon(hx, checked=is_sel))
+            if hasattr(self, 'act_custom_pen_color'):
+                self.act_custom_pen_color.setIcon(
+                    create_color_swatch_icon(cur_col, checked=(not matched_preset))
+                )
+        if hasattr(self, 'draw_shape_actions'):
+            for sh_key, act in self.draw_shape_actions.items():
+                act.setIcon(create_blue_check_icon(self.player_widget.pen_shape == sh_key))
+        if hasattr(self, 'draw_width_actions'):
+            for w_px, act in self.draw_width_actions.items():
+                act.setIcon(create_blue_check_icon(self.player_widget.pen_width == w_px))
+        if hasattr(self, 'draw_opacity_actions'):
+            for op_val, act in self.draw_opacity_actions.items():
+                act.setIcon(create_blue_check_icon(abs(self.player_widget.pen_opacity - op_val) < 0.03))
+        if hasattr(self, 'draw_duration_actions'):
+            for dur_sec, act in self.draw_duration_actions.items():
+                act.setIcon(create_blue_check_icon(abs(self.player_widget.pen_duration - dur_sec) < 0.05))
+
     def toggle_auto_hide_timeline(self):
         self.player_widget.auto_hide_timeline = not self.player_widget.auto_hide_timeline
         self.sync_menu_check_states()
@@ -810,6 +950,7 @@ class VideoCutterApp(QWidget):
         ctx.addMenu(self.view_menu)
         ctx.addMenu(self.settings_menu)
         ctx.addMenu(self.action_menu)
+        ctx.addMenu(self.draw_menu)
         ctx.exec(global_pos)
 
     def ensure_modal_z_order(self):
@@ -864,6 +1005,274 @@ class VideoCutterApp(QWidget):
     def open_hotkey_modal(self):
         self.refresh_hotkey_table()
         self.hotkey_modal.exec()
+
+    # -------------------------------------------------------------
+    # 그리기 도구 팔레트 플로팅 모달 및 설정 저장/복원
+    # -------------------------------------------------------------
+    def build_draw_modal(self):
+        self.draw_modal = FloatingModalDialog(self, "그리기 도구 팔레트 (단축키: Shift+D)", z_priority=2, parent=self)
+        self.draw_modal.resize(300, 340)
+        self.draw_modal.setStyleSheet("""
+            QDialog { background-color: #252526; color: white; }
+            QLabel { color: #dcdcdc; font-size: 12px; font-weight: bold; }
+            QComboBox {
+                background-color: #1e1e1e; color: white; border: 1px solid #3c3c3c;
+                border-radius: 4px; padding: 4px 6px; font-size: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e1e1e; color: white; selection-background-color: #0078d7;
+            }
+            QPushButton {
+                background-color: #3e3e42; color: white; border-radius: 4px;
+                padding: 5px 8px; font-size: 12px; font-weight: bold;
+            }
+            QPushButton:hover { background-color: #0078d7; }
+            QSlider::groove:horizontal {
+                height: 6px; background: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 3px;
+            }
+            QSlider::sub-page:horizontal {
+                background: #0078d7; border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #ffffff; border: 2px solid #0078d7; width: 14px;
+                margin: -5px 0; border-radius: 7px;
+            }
+        """)
+
+        layout = QVBoxLayout(self.draw_modal)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        # 1. 상단 모드 ON/OFF + 취소/전체지우기 버튼 행
+        top_btn_row = QHBoxLayout()
+        top_btn_row.setSpacing(6)
+        self.draw_mode_btn = QPushButton("✏ 그리기 OFF (D)")
+        self.draw_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.draw_mode_btn.clicked.connect(self.player_widget.toggle_drawing_mode)
+
+        self.draw_undo_btn = QPushButton("↩ 취소")
+        self.draw_undo_btn.setToolTip("마지막 획 실행 취소 (Ctrl+Z)")
+        self.draw_undo_btn.clicked.connect(self.player_widget.undo_last_drawing)
+
+        self.draw_clear_btn = QPushButton("🗑 지우기")
+        self.draw_clear_btn.setToolTip("화면에 그려진 그림 모두 지우기 (C)")
+        self.draw_clear_btn.clicked.connect(lambda: self.player_widget.clear_drawings())
+
+        top_btn_row.addWidget(self.draw_mode_btn, 1)
+        top_btn_row.addWidget(self.draw_undo_btn, 0)
+        top_btn_row.addWidget(self.draw_clear_btn, 0)
+        layout.addLayout(top_btn_row)
+
+        # 2. 펜 색상 컬러칩 선택 행
+        col_header = QHBoxLayout()
+        col_header.addWidget(QLabel("펜 색상"))
+        col_header.addStretch()
+        self.draw_col_hex_lbl = QLabel(self.player_widget.pen_color)
+        self.draw_col_hex_lbl.setStyleSheet("color: #9e9e9e; font-size: 11px; font-family: Consolas, monospace;")
+        col_header.addWidget(self.draw_col_hex_lbl)
+        layout.addLayout(col_header)
+
+        swatch_row = QHBoxLayout()
+        swatch_row.setSpacing(5)
+        self.draw_swatch_btns = {}
+        for name, hx in PEN_COLOR_PRESETS:
+            btn = QPushButton("")
+            btn.setFixedSize(24, 24)
+            btn.setToolTip(f"{name} ({hx})")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _, col=hx: self.player_widget.set_pen_color(col))
+            swatch_row.addWidget(btn)
+            self.draw_swatch_btns[hx.lower()] = btn
+
+        self.draw_custom_col_btn = QPushButton("🎨")
+        self.draw_custom_col_btn.setFixedSize(28, 24)
+        self.draw_custom_col_btn.setToolTip("사용자 지정 색상 선택...")
+        self.draw_custom_col_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.draw_custom_col_btn.clicked.connect(self.choose_custom_pen_color)
+        swatch_row.addWidget(self.draw_custom_col_btn)
+        swatch_row.addStretch()
+        layout.addLayout(swatch_row)
+
+        # 3. 펜 모양 선택
+        shape_row = QHBoxLayout()
+        shape_row.addWidget(QLabel("펜 모양"), 0)
+        self.draw_shape_combo = QComboBox()
+        for sh_key, sh_label in PEN_SHAPE_LABELS.items():
+            self.draw_shape_combo.addItem(sh_label, sh_key)
+        self.draw_shape_combo.currentIndexChanged.connect(self._on_draw_shape_combo_changed)
+        shape_row.addWidget(self.draw_shape_combo, 1)
+        layout.addLayout(shape_row)
+
+        # 4. 펜 두께 슬라이더 (1px ~ 30px)
+        width_header = QHBoxLayout()
+        width_header.addWidget(QLabel("펜 두께"))
+        width_header.addStretch()
+        self.draw_width_val_lbl = QLabel(f"{self.player_widget.pen_width}px")
+        self.draw_width_val_lbl.setStyleSheet("color: #2d89ef; font-weight: bold;")
+        width_header.addWidget(self.draw_width_val_lbl)
+        layout.addLayout(width_header)
+
+        self.draw_width_slider = QSlider(Qt.Orientation.Horizontal)
+        self.draw_width_slider.setRange(1, 30)
+        self.draw_width_slider.setValue(self.player_widget.pen_width)
+        self.draw_width_slider.valueChanged.connect(lambda v: self.player_widget.set_pen_width(v, silent=True))
+        layout.addWidget(self.draw_width_slider)
+
+        # 5. 펜 투명도 슬라이더 (10% ~ 100%)
+        op_header = QHBoxLayout()
+        op_header.addWidget(QLabel("펜 투명도 (불투명도)"))
+        op_header.addStretch()
+        self.draw_opacity_val_lbl = QLabel(f"{int(round(self.player_widget.pen_opacity * 100))}%")
+        self.draw_opacity_val_lbl.setStyleSheet("color: #2d89ef; font-weight: bold;")
+        op_header.addWidget(self.draw_opacity_val_lbl)
+        layout.addLayout(op_header)
+
+        self.draw_opacity_slider = QSlider(Qt.Orientation.Horizontal)
+        self.draw_opacity_slider.setRange(10, 100)
+        self.draw_opacity_slider.setSingleStep(5)
+        self.draw_opacity_slider.setValue(int(round(self.player_widget.pen_opacity * 100)))
+        self.draw_opacity_slider.valueChanged.connect(lambda v: self.player_widget.set_pen_opacity(v / 100.0, silent=True))
+        layout.addWidget(self.draw_opacity_slider)
+
+        # 6. 펜 유지 시간 선택
+        dur_row = QHBoxLayout()
+        dur_row.addWidget(QLabel("유지 시간"), 0)
+        self.draw_duration_combo = QComboBox()
+        for dur_sec, dur_desc in PEN_DURATION_PRESETS:
+            self.draw_duration_combo.addItem(dur_desc, dur_sec)
+        self.draw_duration_combo.currentIndexChanged.connect(self._on_draw_duration_combo_changed)
+        dur_row.addWidget(self.draw_duration_combo, 1)
+        layout.addLayout(dur_row)
+
+        layout.addStretch()
+        self.sync_draw_modal_ui()
+
+    def _on_draw_shape_combo_changed(self, idx: int):
+        if idx < 0:
+            return
+        sh_key = self.draw_shape_combo.itemData(idx)
+        if sh_key:
+            self.player_widget.set_pen_shape(sh_key)
+
+    def _on_draw_duration_combo_changed(self, idx: int):
+        if idx < 0:
+            return
+        dur_val = self.draw_duration_combo.itemData(idx)
+        if dur_val is not None:
+            self.player_widget.set_pen_duration(float(dur_val))
+
+    def choose_custom_pen_color(self):
+        initial = QColor(self.player_widget.pen_color)
+        col = QColorDialog.getColor(initial, self, "펜 색상 선택")
+        if col.isValid():
+            self.player_widget.set_pen_color(col.name())
+
+    def sync_draw_modal_ui(self):
+        if not hasattr(self, 'draw_modal') or not self.draw_modal:
+            return
+        en = self.player_widget.drawing_enabled
+        if hasattr(self, 'draw_mode_btn'):
+            self.draw_mode_btn.setText("✏ 그리기 ON (D)" if en else "✏ 그리기 OFF (D)")
+            if en:
+                self.draw_mode_btn.setStyleSheet(
+                    "QPushButton { background-color: #0078d7; color: white; border: 1px solid #5ac8fa; border-radius: 4px; padding: 5px 8px; font-weight: bold; }"
+                )
+            else:
+                self.draw_mode_btn.setStyleSheet(
+                    "QPushButton { background-color: #3e3e42; color: #dcdcdc; border-radius: 4px; padding: 5px 8px; font-weight: bold; }"
+                    "QPushButton:hover { background-color: #505054; }"
+                )
+
+        cur_col = self.player_widget.pen_color.lower()
+        if hasattr(self, 'draw_col_hex_lbl'):
+            self.draw_col_hex_lbl.setText(cur_col.upper())
+
+        if hasattr(self, 'draw_swatch_btns'):
+            for hx, btn in self.draw_swatch_btns.items():
+                is_sel = (hx == cur_col)
+                border = "2px solid #ffffff" if is_sel else "1px solid #555555"
+                btn.setStyleSheet(
+                    f"QPushButton {{ background-color: {hx}; border: {border}; border-radius: 4px; padding: 0px; }}"
+                )
+
+        if hasattr(self, 'draw_shape_combo'):
+            self.draw_shape_combo.blockSignals(True)
+            for i in range(self.draw_shape_combo.count()):
+                if self.draw_shape_combo.itemData(i) == self.player_widget.pen_shape:
+                    self.draw_shape_combo.setCurrentIndex(i)
+                    break
+            self.draw_shape_combo.blockSignals(False)
+
+        if hasattr(self, 'draw_width_slider'):
+            self.draw_width_slider.blockSignals(True)
+            self.draw_width_slider.setValue(self.player_widget.pen_width)
+            self.draw_width_slider.blockSignals(False)
+        if hasattr(self, 'draw_width_val_lbl'):
+            self.draw_width_val_lbl.setText(f"{self.player_widget.pen_width}px")
+
+        if hasattr(self, 'draw_opacity_slider'):
+            op_pct = int(round(self.player_widget.pen_opacity * 100))
+            self.draw_opacity_slider.blockSignals(True)
+            self.draw_opacity_slider.setValue(op_pct)
+            self.draw_opacity_slider.blockSignals(False)
+            if hasattr(self, 'draw_opacity_val_lbl'):
+                self.draw_opacity_val_lbl.setText(f"{op_pct}%")
+
+        if hasattr(self, 'draw_duration_combo'):
+            self.draw_duration_combo.blockSignals(True)
+            for i in range(self.draw_duration_combo.count()):
+                d_val = float(self.draw_duration_combo.itemData(i))
+                if abs(d_val - self.player_widget.pen_duration) < 0.05:
+                    self.draw_duration_combo.setCurrentIndex(i)
+                    break
+            self.draw_duration_combo.blockSignals(False)
+
+    def toggle_draw_modal(self, force_open: bool = None):
+        should_open = (not self.draw_modal.isVisible()) if force_open is None else bool(force_open)
+        if not should_open:
+            self.draw_modal.hide()
+        else:
+            g = self.geometry()
+            self.draw_modal.move(max(10, g.left() + 340), max(40, g.top() + 50))
+            self.sync_draw_modal_ui()
+            self.draw_modal.show()
+            self.draw_modal.raise_()
+            self.ensure_modal_z_order()
+
+    def save_draw_settings(self):
+        data = {
+            "pen_color": self.player_widget.pen_color,
+            "pen_shape": self.player_widget.pen_shape,
+            "pen_width": self.player_widget.pen_width,
+            "pen_opacity": self.player_widget.pen_opacity,
+            "pen_duration": self.player_widget.pen_duration,
+        }
+        save_app_data_json("draw_settings.json", data)
+
+    def load_draw_settings(self):
+        saved = load_app_data_json("draw_settings.json")
+        if saved and isinstance(saved, dict):
+            if "pen_color" in saved:
+                self.player_widget.set_pen_color(str(saved["pen_color"]), silent=True)
+            if "pen_shape" in saved:
+                self.player_widget.set_pen_shape(str(saved["pen_shape"]), silent=True)
+            if "pen_width" in saved:
+                try:
+                    self.player_widget.set_pen_width(int(saved["pen_width"]), silent=True)
+                except (ValueError, TypeError):
+                    pass
+            if "pen_opacity" in saved:
+                try:
+                    self.player_widget.set_pen_opacity(float(saved["pen_opacity"]), silent=True)
+                except (ValueError, TypeError):
+                    pass
+            if "pen_duration" in saved:
+                try:
+                    self.player_widget.set_pen_duration(float(saved["pen_duration"]), silent=True)
+                except (ValueError, TypeError):
+                    pass
+        self.sync_draw_modal_ui()
+        self.sync_menu_check_states()
 
     def play_prev_video(self):
         cnt = self.playlist_widget.count()
@@ -2290,6 +2699,14 @@ class VideoCutterApp(QWidget):
             self.player_widget.toggle_time_label()
         elif matched_action == "toggle_hud":
             self.player_widget.toggle_hud_overlay()
+        elif matched_action == "toggle_draw_mode":
+            self.player_widget.toggle_drawing_mode()
+        elif matched_action == "toggle_draw_modal":
+            self.toggle_draw_modal()
+        elif matched_action == "clear_drawings":
+            self.player_widget.clear_drawings()
+        elif matched_action == "undo_drawing":
+            self.player_widget.undo_last_drawing()
         else:
             super().keyPressEvent(event)
 
@@ -2580,6 +2997,8 @@ class VideoCutterApp(QWidget):
                 self.edit_modal.close()
             if hasattr(self, 'playlist_modal') and self.playlist_modal:
                 self.playlist_modal.close()
+            if hasattr(self, 'draw_modal') and self.draw_modal:
+                self.draw_modal.close()
             if hasattr(self, 'hotkey_modal') and self.hotkey_modal:
                 self.hotkey_modal.close()
             if hasattr(self, 'player_widget') and self.player_widget:

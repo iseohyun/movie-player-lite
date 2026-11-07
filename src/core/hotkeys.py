@@ -38,6 +38,10 @@ DEFAULT_HOTKEYS = {
     "show_properties": {"name": "동영상 정보 모달 보기", "primary": "?", "secondary": ""},
     "delete_playlist_item": {"name": "재생목록 항목 삭제", "primary": "Delete", "secondary": ""},
     "rename_playlist_item": {"name": "재생목록 파일 이름 변경", "primary": "F2", "secondary": ""},
+    "toggle_draw_mode": {"name": "그리기 모드 ON/OFF", "primary": "D", "secondary": ""},
+    "toggle_draw_modal": {"name": "그리기 도구 팔레트 열기", "primary": "Shift+D", "secondary": ""},
+    "clear_drawings": {"name": "그리기 모두 지우기", "primary": "C", "secondary": ""},
+    "undo_drawing": {"name": "그리기 마지막 획 취소", "primary": "Ctrl+Z", "secondary": ""},
 }
 
 

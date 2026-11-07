@@ -7,13 +7,354 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, QSizePolicy, QApplication,
     QGraphicsView, QGraphicsScene
 )
-from PyQt6.QtCore import Qt, QTimer, QUrl, QPoint, QSizeF, QFile, QIODevice, QEvent
-from PyQt6.QtGui import QTransform
+from PyQt6.QtCore import Qt, QTimer, QUrl, QPoint, QPointF, QSizeF, QFile, QIODevice, QEvent
+from PyQt6.QtGui import QTransform, QPainter, QPen, QColor, QPainterPath, QPolygonF
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
+import time
+import math
 
 from src.ui.widgets.timeline import TrimmingSliderWidget, ThumbnailGeneratorThread
 from src.utils.time_utils import ms_to_time_str
+
+
+PEN_SHAPE_LABELS = {
+    "round": "둥근 펜 (기본)",
+    "highlighter": "형광 / 납작 펜",
+    "dashed": "점선 펜",
+    "glow": "네온 글로우 펜",
+    "arrow": "화살표 곡선 펜",
+}
+
+PEN_COLOR_PRESETS = [
+    ("빨강", "#ff3b30"),
+    ("노랑", "#ffeb3b"),
+    ("초록", "#4cd964"),
+    ("파랑", "#007aff"),
+    ("형광하늘", "#5ac8fa"),
+    ("분홍", "#ff2d55"),
+    ("주황", "#ff9500"),
+    ("흰색", "#ffffff"),
+]
+
+PEN_DURATION_PRESETS = [
+    (1.0, "1초 후 사라짐"),
+    (2.0, "2초 후 사라짐"),
+    (3.0, "3초 후 사라짐"),
+    (5.0, "5초 후 사라짐"),
+    (10.0, "10초 후 사라짐"),
+    (0.0, "계속 유지 (직접 지우기)"),
+]
+
+
+class DrawingOverlayWidget(QWidget):
+    """동영상 화면 위에 마우스 드래그로 자유곡선 및 잔상(유지 시간 후 페이드아웃)을 그리는 투명 오버레이 캔버스"""
+
+    def __init__(self, player_widget: "EmbeddedVideoPlayer", parent=None):
+        super().__init__(parent or player_widget.video_widget)
+        self.player = player_widget
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.setMouseTracking(True)
+
+        self.strokes = []
+        self.current_stroke = None
+
+        self.anim_timer = QTimer(self)
+        self.anim_timer.setInterval(20)  # ~50fps 부드러운 페이드아웃 갱신
+        self.anim_timer.timeout.connect(self._on_anim_tick)
+
+    def set_drawing_mode(self, enabled: bool):
+        if enabled:
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        else:
+            if self.current_stroke is not None:
+                self.current_stroke["finished_at"] = time.monotonic()
+                self.strokes.append(self.current_stroke)
+                self.current_stroke = None
+                self._ensure_timer()
+            self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+            self.unsetCursor()
+        self.update()
+
+    def clear_all(self):
+        self.strokes.clear()
+        self.current_stroke = None
+        if self.anim_timer.isActive():
+            self.anim_timer.stop()
+        self.update()
+
+    def undo_last(self) -> bool:
+        if self.current_stroke is not None:
+            self.current_stroke = None
+            self.update()
+            return True
+        if self.strokes:
+            self.strokes.pop()
+            self.update()
+            return True
+        return False
+
+    def _ensure_timer(self):
+        has_timed = any(s.get("duration_sec", 0.0) > 0 for s in self.strokes)
+        if has_timed and not self.anim_timer.isActive():
+            self.anim_timer.start()
+        elif not has_timed and self.current_stroke is None and self.anim_timer.isActive():
+            self.anim_timer.stop()
+
+    def _on_anim_tick(self):
+        if not self.strokes and self.current_stroke is None:
+            self.anim_timer.stop()
+            return
+
+        now = time.monotonic()
+        alive = []
+        changed = False
+        for s in self.strokes:
+            dur = float(s.get("duration_sec", 0.0))
+            fin = s.get("finished_at")
+            if dur <= 0.0 or fin is None:
+                alive.append(s)
+                continue
+            fade_time = min(0.65, max(0.25, dur * 0.35))
+            elapsed = now - fin
+            if elapsed < dur + fade_time:
+                alive.append(s)
+                if elapsed >= dur:
+                    changed = True
+            else:
+                changed = True
+
+        if len(alive) != len(self.strokes):
+            self.strokes = alive
+            changed = True
+
+        if changed or any(
+            s.get("duration_sec", 0.0) > 0 and s.get("finished_at") is not None
+            and (now - s["finished_at"]) >= s["duration_sec"]
+            for s in self.strokes
+        ):
+            self.update()
+
+        self._ensure_timer()
+
+    def mousePressEvent(self, event):
+        if not self.player.drawing_enabled:
+            event.ignore()
+            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position()
+            self.current_stroke = {
+                "points": [QPointF(pos.x(), pos.y())],
+                "color": QColor(self.player.pen_color),
+                "shape": str(self.player.pen_shape),
+                "width": int(self.player.pen_width),
+                "opacity": float(self.player.pen_opacity),
+                "duration_sec": float(self.player.pen_duration),
+                "finished_at": None,
+            }
+            self.update()
+            event.accept()
+            return
+        elif event.button() == Qt.MouseButton.RightButton:
+            main_win = self.player.window()
+            if hasattr(main_win, 'show_player_context_menu'):
+                main_win.show_player_context_menu(event.globalPosition().toPoint())
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if not self.player.drawing_enabled:
+            event.ignore()
+            return
+        pos = event.position()
+        if (event.buttons() & Qt.MouseButton.LeftButton) and self.current_stroke is not None:
+            pts = self.current_stroke["points"]
+            new_pt = QPointF(pos.x(), pos.y())
+            if not pts or math.hypot(new_pt.x() - pts[-1].x(), new_pt.y() - pts[-1].y()) >= 1.5:
+                pts.append(new_pt)
+                self.update()
+            event.accept()
+            return
+        else:
+            # 드래그 중이 아닐 때만 마우스 오버레이(상단 메뉴바/하단 재생바) 활성화
+            self.player.on_mouse_activity(pos.toPoint())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if not self.player.drawing_enabled:
+            event.ignore()
+            return
+        if event.button() == Qt.MouseButton.LeftButton and self.current_stroke is not None:
+            pos = event.position()
+            pts = self.current_stroke["points"]
+            new_pt = QPointF(pos.x(), pos.y())
+            if not pts or math.hypot(new_pt.x() - pts[-1].x(), new_pt.y() - pts[-1].y()) >= 1.0:
+                pts.append(new_pt)
+            if len(pts) == 1:
+                pts.append(QPointF(pts[0].x() + 0.5, pts[0].y() + 0.5))
+            self.current_stroke["finished_at"] = time.monotonic()
+            self.strokes.append(self.current_stroke)
+            self.current_stroke = None
+            self._ensure_timer()
+            self.update()
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and not self.player.drawing_enabled:
+            w = self.player.window()
+            if hasattr(w, 'cycle_fullscreen_mode'):
+                w.cycle_fullscreen_mode()
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
+
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            delta = event.angleDelta().y()
+            if delta > 0:
+                self.player.zoom_in()
+            elif delta < 0:
+                self.player.zoom_out()
+            event.accept()
+            return
+        super().wheelEvent(event)
+
+    @staticmethod
+    def _build_smooth_path(points: list) -> QPainterPath:
+        path = QPainterPath()
+        if not points:
+            return path
+        path.moveTo(points[0])
+        if len(points) == 1:
+            path.lineTo(points[0].x() + 0.5, points[0].y() + 0.5)
+            return path
+        if len(points) == 2:
+            path.lineTo(points[1])
+            return path
+        for i in range(1, len(points) - 1):
+            mid_x = (points[i].x() + points[i + 1].x()) * 0.5
+            mid_y = (points[i].y() + points[i + 1].y()) * 0.5
+            path.quadTo(points[i], QPointF(mid_x, mid_y))
+        path.lineTo(points[-1])
+        return path
+
+    def _draw_arrowhead(self, painter: QPainter, points: list, color: QColor, width: int):
+        if len(points) < 2:
+            return
+        tip = points[-1]
+        # 방향 계산을 위해 끝점에서 최소 거리가 떨어진 이전 점 탐색
+        prev = points[0]
+        for idx in range(len(points) - 2, -1, -1):
+            if math.hypot(tip.x() - points[idx].x(), tip.y() - points[idx].y()) >= max(6.0, width * 1.5):
+                prev = points[idx]
+                break
+        dx = tip.x() - prev.x()
+        dy = tip.y() - prev.y()
+        length = math.hypot(dx, dy)
+        if length < 1.0:
+            return
+        angle = math.atan2(dy, dx)
+        head_len = max(12.0, width * 3.2)
+        wing_angle = math.radians(28)
+
+        p1 = QPointF(
+            tip.x() - head_len * math.cos(angle - wing_angle),
+            tip.y() - head_len * math.sin(angle - wing_angle),
+        )
+        p2 = QPointF(
+            tip.x() - head_len * math.cos(angle + wing_angle),
+            tip.y() - head_len * math.sin(angle + wing_angle),
+        )
+        painter.save()
+        pen = QPen(color, max(2.0, float(width)), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(color)
+        poly = QPolygonF([tip, p1, p2])
+        painter.drawPolygon(poly)
+        painter.restore()
+
+    def _render_stroke(self, painter: QPainter, stroke: dict, now: float):
+        pts = stroke.get("points", [])
+        if not pts:
+            return
+
+        base_opacity = max(0.05, min(1.0, float(stroke.get("opacity", 0.9))))
+        dur = float(stroke.get("duration_sec", 0.0))
+        fin = stroke.get("finished_at")
+
+        fade_factor = 1.0
+        if dur > 0.0 and fin is not None:
+            fade_time = min(0.65, max(0.25, dur * 0.35))
+            elapsed = now - fin
+            if elapsed >= dur + fade_time:
+                return
+            elif elapsed > dur:
+                fade_factor = max(0.0, 1.0 - (elapsed - dur) / fade_time)
+
+        effective_alpha = max(0.0, min(1.0, base_opacity * fade_factor))
+        if effective_alpha <= 0.01:
+            return
+
+        color = QColor(stroke.get("color", "#ff3b30"))
+        color.setAlphaF(effective_alpha)
+        width = max(1, int(stroke.get("width", 5)))
+        shape = stroke.get("shape", "round")
+
+        path = self._build_smooth_path(pts)
+
+        if shape == "glow":
+            # 외곽 네온 광채 + 중심 코어 이중 렌더링
+            glow_color = QColor(color)
+            glow_color.setAlphaF(min(1.0, effective_alpha * 0.32))
+            glow_pen = QPen(glow_color, width * 2.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(glow_pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+
+            mid_pen = QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(mid_pen)
+            painter.drawPath(path)
+
+            core_color = QColor("#ffffff")
+            core_color.setAlphaF(min(1.0, effective_alpha * 0.75))
+            core_pen = QPen(core_color, max(1.0, width * 0.35), Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(core_pen)
+            painter.drawPath(path)
+            return
+
+        if shape == "highlighter":
+            pen = QPen(color, width * 1.4, Qt.PenStyle.SolidLine, Qt.PenCapStyle.SquareCap, Qt.PenJoinStyle.BevelJoin)
+        elif shape == "dashed":
+            pen = QPen(color, width, Qt.PenStyle.DashLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        else:
+            # "round" 및 "arrow"
+            pen = QPen(color, width, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(path)
+
+        if shape == "arrow":
+            self._draw_arrowhead(painter, pts, color, width)
+
+    def paintEvent(self, event):
+        if not self.strokes and self.current_stroke is None:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        now = time.monotonic()
+        for s in self.strokes:
+            self._render_stroke(painter, s, now)
+        if self.current_stroke is not None:
+            self._render_stroke(painter, self.current_stroke, now)
+        painter.end()
+
 
 
 class EmbeddedVideoPlayer(QWidget):
@@ -61,6 +402,10 @@ class EmbeddedVideoPlayer(QWidget):
         self.container_layout.addWidget(self.graphics_view, 1)
         main_layout.addWidget(self.video_container, 1)
 
+        # 동영상 위 마우스 드래그 그리기(잔상) 투명 캔버스 오버레이
+        self.drawing_overlay = DrawingOverlayWidget(self, self.video_widget)
+        self.drawing_overlay.show()
+
         # 변형 상태 표시 빨간색 배지 (저장 대기 유지)
         self.transform_badge = QLabel(self.video_widget)
         self.transform_badge.setStyleSheet(
@@ -69,6 +414,15 @@ class EmbeddedVideoPlayer(QWidget):
         )
         self.transform_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.transform_badge.hide()
+
+        # 그리기 모드 활성화 표시 배지
+        self.draw_badge = QLabel(self.video_widget)
+        self.draw_badge.setStyleSheet(
+            "QLabel { background-color: rgba(0, 120, 215, 0.92); color: #ffffff; font-weight: bold; "
+            "font-size: 12px; padding: 5px 11px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.35); }"
+        )
+        self.draw_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.draw_badge.hide()
 
         # 비디오 화면 하단 좌측 오버레이 시간/상태 정보 배지 (윗행: 변경상태 요약, 아랫행: 시간)
         self.time_label = QLabel("00:00:00.00 / 00:00:00.00", self.video_widget)
@@ -102,6 +456,14 @@ class EmbeddedVideoPlayer(QWidget):
         self.is_video_only_fullscreen = False
         self.is_stretch_fill = False
         self.at_end_of_media = False
+
+        # 그리기(드로잉 오버레이) 상태 및 펜 설정 변수
+        self.drawing_enabled = False
+        self.pen_color = "#ff3b30"
+        self.pen_shape = "round"
+        self.pen_width = 5
+        self.pen_opacity = 0.90
+        self.pen_duration = 2.0  # 초 단위 (0.0이면 계속 유지)
 
         # 시그널 연결
         self.media_player.positionChanged.connect(self.on_position_changed)
@@ -157,6 +519,8 @@ class EmbeddedVideoPlayer(QWidget):
         self.hud_timer.start()
 
     def eventFilter(self, obj, event):
+        if getattr(self, 'drawing_enabled', False):
+            return super().eventFilter(obj, event)
         if event.type() == QEvent.Type.MouseMove:
             self.on_mouse_activity(event.position().toPoint())
         elif event.type() == QEvent.Type.MouseButtonPress:
@@ -192,6 +556,9 @@ class EmbeddedVideoPlayer(QWidget):
         self.show_overlay(local_pos)
 
     def mouseMoveEvent(self, event):
+        if getattr(self, 'drawing_enabled', False):
+            super().mouseMoveEvent(event)
+            return
         self.on_mouse_activity(event.position().toPoint())
         if event.buttons() == Qt.MouseButton.LeftButton and self.drag_start_pos is not None:
             top_win = self.window()
@@ -201,6 +568,9 @@ class EmbeddedVideoPlayer(QWidget):
         super().mouseMoveEvent(event)
 
     def mousePressEvent(self, event):
+        if getattr(self, 'drawing_enabled', False):
+            super().mousePressEvent(event)
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_start_pos = event.globalPosition().toPoint()
             self.on_mouse_activity(event.position().toPoint())
@@ -216,7 +586,7 @@ class EmbeddedVideoPlayer(QWidget):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton and not getattr(self, 'drawing_enabled', False):
             w = self.window()
             if hasattr(w, 'cycle_fullscreen_mode'):
                 w.cycle_fullscreen_mode()
@@ -227,6 +597,9 @@ class EmbeddedVideoPlayer(QWidget):
     def layout_overlay_widgets(self):
         w = self.width()
         h = self.height()
+        if hasattr(self, 'drawing_overlay') and self.drawing_overlay and hasattr(self, 'video_widget') and self.video_widget:
+            self.drawing_overlay.setGeometry(0, 0, self.video_widget.width(), self.video_widget.height())
+            self.drawing_overlay.raise_()
         slider_h = self.trimming_slider.height() if hasattr(self, 'trimming_slider') else 38
         if hasattr(self, 'trimming_slider') and self.trimming_slider:
             self.trimming_slider.setGeometry(0, max(0, h - slider_h), w, slider_h)
@@ -238,13 +611,18 @@ class EmbeddedVideoPlayer(QWidget):
         self.update_time_label_position()
 
     def update_transform_badge_position(self):
+        main_win = self.window()
+        top_offset = 14
+        if hasattr(main_win, 'top_menu_bar') and main_win.top_menu_bar and main_win.top_menu_bar.isVisible():
+            top_offset = main_win.top_menu_bar.height() + 8
         if hasattr(self, 'transform_badge') and self.transform_badge:
-            main_win = self.window()
-            top_offset = 14
-            if hasattr(main_win, 'top_menu_bar') and main_win.top_menu_bar and main_win.top_menu_bar.isVisible():
-                top_offset = main_win.top_menu_bar.height() + 8
             self.transform_badge.move(14, top_offset)
             self.transform_badge.raise_()
+            if self.transform_badge.isVisible():
+                top_offset += self.transform_badge.height() + 6
+        if hasattr(self, 'draw_badge') and self.draw_badge:
+            self.draw_badge.move(14, top_offset)
+            self.draw_badge.raise_()
 
     def show_overlay(self, local_pos: QPoint = None):
         main_win = self.window()
@@ -436,6 +814,129 @@ class EmbeddedVideoPlayer(QWidget):
             main_win.show_toast("화면 확대/위치 초기화 (100%, X:0 Y:0)")
 
     # -------------------------------------------------------------
+    # 그리기(드로잉 오버레이) 모드 및 펜 속성 제어 메서드
+    # -------------------------------------------------------------
+    def update_draw_badge(self):
+        if not hasattr(self, 'draw_badge') or not self.draw_badge:
+            return
+        if self.drawing_enabled:
+            shape_name = PEN_SHAPE_LABELS.get(self.pen_shape, self.pen_shape)
+            dur_str = f"{self.pen_duration:g}초" if self.pen_duration > 0 else "계속유지"
+            self.draw_badge.setText(
+                f"[ ✏ 그리기 모드 ON (D) | {shape_name} · {self.pen_width}px · {int(round(self.pen_opacity * 100))}% · {dur_str} | 지우기: C ]"
+            )
+            self.draw_badge.adjustSize()
+            self.update_transform_badge_position()
+            self.draw_badge.show()
+            self.draw_badge.raise_()
+        else:
+            self.draw_badge.hide()
+            self.update_transform_badge_position()
+
+    def set_drawing_enabled(self, enabled: bool, silent: bool = False):
+        self.drawing_enabled = bool(enabled)
+        if hasattr(self, 'drawing_overlay') and self.drawing_overlay:
+            self.drawing_overlay.set_drawing_mode(self.drawing_enabled)
+        self.update_draw_badge()
+        self.refresh_time_label()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if not silent and hasattr(main_win, 'show_toast'):
+            main_win.show_toast("그리기 모드 ON (마우스 드래그로 그리기)" if self.drawing_enabled else "그리기 모드 OFF")
+
+    def toggle_drawing_mode(self):
+        self.set_drawing_enabled(not self.drawing_enabled)
+
+    def clear_drawings(self, silent: bool = False):
+        if hasattr(self, 'drawing_overlay') and self.drawing_overlay:
+            self.drawing_overlay.clear_all()
+        main_win = self.window()
+        if not silent and hasattr(main_win, 'show_toast'):
+            main_win.show_toast("그리기 잔상 모두 지움")
+
+    def undo_last_drawing(self):
+        if hasattr(self, 'drawing_overlay') and self.drawing_overlay:
+            undone = self.drawing_overlay.undo_last()
+            main_win = self.window()
+            if hasattr(main_win, 'show_toast'):
+                main_win.show_toast("마지막 획 실행 취소" if undone else "취소할 그리기 획이 없습니다")
+
+    def set_pen_color(self, color_hex: str, silent: bool = False):
+        c = QColor(color_hex)
+        if not c.isValid():
+            return
+        self.pen_color = c.name()
+        self.update_draw_badge()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if hasattr(main_win, 'save_draw_settings'):
+            main_win.save_draw_settings()
+        if not silent and hasattr(main_win, 'show_toast'):
+            color_label = next((name for name, hx in PEN_COLOR_PRESETS if hx.lower() == self.pen_color.lower()), self.pen_color)
+            main_win.show_toast(f"펜 색상: {color_label}")
+
+    def set_pen_shape(self, shape_key: str, silent: bool = False):
+        if shape_key not in PEN_SHAPE_LABELS:
+            return
+        self.pen_shape = shape_key
+        self.update_draw_badge()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if hasattr(main_win, 'save_draw_settings'):
+            main_win.save_draw_settings()
+        if not silent and hasattr(main_win, 'show_toast'):
+            main_win.show_toast(f"펜 모양: {PEN_SHAPE_LABELS[shape_key]}")
+
+    def set_pen_width(self, width: int, silent: bool = False):
+        self.pen_width = max(1, min(40, int(width)))
+        self.update_draw_badge()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if hasattr(main_win, 'save_draw_settings'):
+            main_win.save_draw_settings()
+        if not silent and hasattr(main_win, 'show_toast'):
+            main_win.show_toast(f"펜 두께: {self.pen_width}px")
+
+    def set_pen_opacity(self, opacity: float, silent: bool = False):
+        self.pen_opacity = round(max(0.10, min(1.0, float(opacity))), 2)
+        self.update_draw_badge()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if hasattr(main_win, 'save_draw_settings'):
+            main_win.save_draw_settings()
+        if not silent and hasattr(main_win, 'show_toast'):
+            main_win.show_toast(f"펜 투명도: {int(round(self.pen_opacity * 100))}%")
+
+    def set_pen_duration(self, duration_sec: float, silent: bool = False):
+        self.pen_duration = max(0.0, float(duration_sec))
+        self.update_draw_badge()
+        main_win = self.window()
+        if hasattr(main_win, 'sync_menu_check_states'):
+            main_win.sync_menu_check_states()
+        if hasattr(main_win, 'sync_draw_modal_ui'):
+            main_win.sync_draw_modal_ui()
+        if hasattr(main_win, 'save_draw_settings'):
+            main_win.save_draw_settings()
+        if not silent and hasattr(main_win, 'show_toast'):
+            dur_label = f"{self.pen_duration:g}초 후 사라짐" if self.pen_duration > 0 else "계속 유지 (직접 지우기)"
+            main_win.show_toast(f"펜 유지 시간: {dur_label}")
+
+    # -------------------------------------------------------------
     # 미디어 소스 핸들 (FILE_SHARE_DELETE 지원)
     # -------------------------------------------------------------
     def _close_source_device(self):
@@ -551,6 +1052,8 @@ class EmbeddedVideoPlayer(QWidget):
             self.hud_timer.stop()
         if hasattr(self, 'hide_timer') and self.hide_timer:
             self.hide_timer.stop()
+        if hasattr(self, 'drawing_overlay') and self.drawing_overlay:
+            self.drawing_overlay.clear_all()
         self.stop_thumbnail_thread()
         self.unload_video()
         if hasattr(self, 'info_overlay') and self.info_overlay:
@@ -614,6 +1117,7 @@ class EmbeddedVideoPlayer(QWidget):
             self.video_container.setStyleSheet("QFrame#video_container { background-color: #000000; border-radius: 0px; }")
             self.container_layout.setContentsMargins(0, 0, 0, 0)
             self.transform_badge.hide()
+            self.update_transform_badge_position()
 
         # -------------------------------------------------------------
         # Live Visual Transformation & Zoom/Pan on Screen (QGraphicsVideoItem)
@@ -899,6 +1403,8 @@ class EmbeddedVideoPlayer(QWidget):
                 top_y = top_win.top_menu_bar.height() + 8
             if self.transform_badge.isVisible():
                 top_y = self.transform_badge.y() + self.transform_badge.height() + 8
+            if hasattr(self, 'draw_badge') and self.draw_badge.isVisible():
+                top_y = self.draw_badge.y() + self.draw_badge.height() + 8
 
             gpos = self.video_widget.mapToGlobal(QPoint(12, top_y))
             self.info_overlay.move(gpos)

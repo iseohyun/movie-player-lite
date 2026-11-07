@@ -271,16 +271,16 @@ def run_traceability_tests():
     # -------------------------------------------------------------
     print("\n[TEST 16] Minimal Bezel & Top Menu Bar + Blue Check Icons...")
     menu_titles = [a.text() for a in ex.top_menu_bar.actions()]
-    has_5_menus = len(menu_titles) == 5 and all(
-        k in t for k, t in zip(["파일", "재생", "화면", "설정", "조작"], menu_titles)
+    has_6_menus = len(menu_titles) == 6 and all(
+        k in t for k, t in zip(["파일", "재생", "화면", "설정", "조작", "그리기"], menu_titles)
     )
     has_blue_checks = (
         ex.player_widget.auto_hide_timeline and not ex.act_auto_hide_timeline.icon().isNull() and
         ex.player_widget.auto_hide_menubar and not ex.act_auto_hide_menubar.icon().isNull()
     )
-    req16_pass = has_5_menus and has_blue_checks
+    req16_pass = has_6_menus and has_blue_checks
     print(f" -> Menus: {menu_titles}, Blue check icons active: {has_blue_checks}")
-    results.append(("Req 16: Minimal Bezel & Top Menu Bar (5 Menus + Blue Check Icons)", "PASS" if req16_pass else "FAIL"))
+    results.append(("Req 16: Minimal Bezel & Top Menu Bar (6 Menus + Blue Check Icons)", "PASS" if req16_pass else "FAIL"))
 
     # -------------------------------------------------------------
     # Req 17: Floating Edit Modal (E) Timeline Pin & Playlist Modal (P) Z-Order
@@ -425,6 +425,59 @@ def run_traceability_tests():
     req21_pass = detected_self_lock and rename_unlocked_ok and remove_unlocked_ok
     print(f" -> RestartManager detected blocking lock: {detected_self_lock}, Auto-unlock rename: {rename_unlocked_ok}, Auto-unlock remove: {remove_unlocked_ok}")
     results.append(("Req 21: Self & Same-Name/Child Process Lock Auto-Release", "PASS" if req21_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 22: Video Overlay Drawing Mode & Pen Settings (Color/Shape/Width/Opacity/Duration)
+    # -------------------------------------------------------------
+    print("\n[TEST 22] Video Overlay Drawing Mode & Pen Settings...")
+    from PyQt6.QtCore import QPointF
+    from PyQt6.QtGui import QColor
+    import time
+
+    ex.player_widget.toggle_drawing_mode()
+    draw_mode_on = ex.player_widget.drawing_enabled and ex.player_widget.draw_badge.isVisible()
+    ex.player_widget.set_pen_color("#4cd964")
+    ex.player_widget.set_pen_shape("glow")
+    ex.player_widget.set_pen_width(12)
+    ex.player_widget.set_pen_opacity(0.75)
+    ex.player_widget.set_pen_duration(0.2)  # 0.2s hold for fast expiration test
+
+    overlay = ex.player_widget.drawing_overlay
+    overlay.strokes.append({
+        "points": [QPointF(20.0, 20.0), QPointF(120.0, 80.0), QPointF(200.0, 140.0)],
+        "color": QColor(ex.player_widget.pen_color),
+        "shape": ex.player_widget.pen_shape,
+        "width": ex.player_widget.pen_width,
+        "opacity": ex.player_widget.pen_opacity,
+        "duration_sec": ex.player_widget.pen_duration,
+        "finished_at": time.monotonic() - 1.5,  # already past hold + fade
+    })
+    overlay.strokes.append({
+        "points": [QPointF(50.0, 50.0), QPointF(150.0, 150.0)],
+        "color": QColor("#ff3b30"),
+        "shape": "arrow",
+        "width": 8,
+        "opacity": 0.90,
+        "duration_sec": 0.0,  # persistent stroke
+        "finished_at": time.monotonic(),
+    })
+    overlay._on_anim_tick()
+    expired_removed_and_persistent_kept = (len(overlay.strokes) == 1 and overlay.strokes[0]["shape"] == "arrow")
+    ex.player_widget.undo_last_drawing()
+    undo_ok = (len(overlay.strokes) == 0)
+    ex.toggle_draw_modal(True)
+    modal_open_ok = ex.draw_modal.isVisible()
+    ex.toggle_draw_modal(False)
+    ex.player_widget.set_drawing_enabled(False)
+    ex.player_widget.set_pen_color("#ff3b30", silent=True)
+    ex.player_widget.set_pen_shape("round", silent=True)
+    ex.player_widget.set_pen_width(5, silent=True)
+    ex.player_widget.set_pen_opacity(0.90, silent=True)
+    ex.player_widget.set_pen_duration(2.0, silent=True)
+
+    req22_pass = draw_mode_on and expired_removed_and_persistent_kept and undo_ok and modal_open_ok
+    print(f" -> Draw mode ON: {draw_mode_on}, Trail expire & persistent keep: {expired_removed_and_persistent_kept}, Undo: {undo_ok}, Modal: {modal_open_ok}")
+    results.append(("Req 22: Video Overlay Drawing Mode & Pen Trail Settings", "PASS" if req22_pass else "FAIL"))
 
     ex.player_widget.cleanup()
 
