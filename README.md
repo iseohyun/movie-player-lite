@@ -1,90 +1,100 @@
 # 🎬 Movie Player Lite
 
-## 📌 프로젝트 개요 및 목적
-- **Movie Player Lite**는 대용량 고화질 동영상 편집 시 Timeline 재인코딩 과정에서 발생하는 시간적·품질적 손실을 방지하는 초고속 무손실 영상 플레이어 & 분할기입니다.
-- **FFmpeg 기반 무손실(Stream Copy) 초고속 Cutting 기능**으로 원하는 유효 구간만 손실 없이 순식간에 추출합니다.
+**English** | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
+
+## 📌 Overview and Purpose
+- **Movie Player Lite** is an ultra-fast lossless video player & splitter that avoids the time and quality loss caused by timeline re-encoding when editing large, high-quality videos.
+- Its **FFmpeg-based lossless (stream copy) cutting** extracts just the range you need in an instant, with no quality loss.
 
 ---
 
-## 🔥 주요 기능 및 사용법
+## 🔥 Key Features and Usage
 
-### 1. 내장 비디오 플레이어 & 타임라인 슬라이더
-- **내장 비디오 플레이어**: QMediaPlayer 탑재, 영상 클릭/더블클릭/마우스 오버레이를 통한 재생/일시정지/전체화면 지원
-- **10개 씬 비동기 추출 썸네일 타임라인**: 영상 구간 전체의 흐름을 한눈에 파악하는 필름스트립 타임라인 바
-- **1px 세로선 스마트 마커**: 편집점 시작/종료(1px 녹색 세로선) 및 현재 재생 시점(1px 빨간색 세로선) 최상단 렌더링
-- **스마트 일시정지**: 동영상 재생 중 재생바를 마우스로 잡거나 드래그 시 자동으로 일시정지하여 정밀 조작 지원
+### 1. Built-in Video Player & Timeline Slider
+- **Built-in video player**: powered by QMediaPlayer; play/pause/fullscreen by click, double-click, or the mouse overlay
+- **Thumbnail timeline with 10 asynchronously extracted scenes**: a filmstrip timeline bar that shows the flow of the whole video at a glance
+- **1px vertical smart markers**: cut start/end (1px green lines) and the current playback position (1px red line) are always drawn on top
+- **Smart pause**: grabbing or dragging the seek bar during playback pauses automatically for precise control
 
-### 2. 옵션 & 히스토리 및 재생목록 사이드바
-- **좌측 옵션 패널 (`[`)**: 음소거, 촬영 속성 복사, 자동 넘버링, 동일/output/사용자 지정 저장 경로 선택
-- **커스텀 단축키 설정 패널 (`⌨`)**: 기본(Primary) 및 보조(Secondary) 단축키를 사용자가 직접 변경 및 저장 (`hotkeys.json`)
-- **우측 재생목록 패널 (`]`)**: 최근 영상 목록 관리, 파일 추가/드래그&드롭, Delete 키 항목 제거 및 전체 비우기, 자동 유실 파일 정제 (`playlist_history.json`)
-- **부드러운 슬라이드 애니메이션**: 단축키 입력 시 최적화된 사이드바 슬라이딩 개폐 처리
+### 2. Options, History and Playlist Sidebars
+- **Left options panel (`[`)**: mute, copy capture properties, auto numbering, and a choice of same / output / custom save path
+- **Custom shortcut panel (`⌨`)**: change and save primary and secondary shortcuts yourself (`hotkeys.json`)
+- **Right playlist panel (`]`)**: manage recent videos, add files or drag & drop, remove items with Delete or clear everything, and automatically prune missing files (`playlist_history.json`)
+- **Smooth slide animation**: optimized sidebar open/close sliding when a shortcut is pressed
 
 ---
 
-## ⌨️ 기본 단축키 목록
+## ⌨️ Default Shortcuts
 
-| 기능 | 기본 단축키 (Primary) | 보조 단축키 (Secondary) |
+| Function | Primary | Secondary |
 | :--- | :---: | :---: |
-| **옵션 패널 토글** | `[` | - |
-| **재생목록 토글** | `]` | - |
-| **재생 / 일시정지** | `Space` | `K` |
-| **1초 뒤로 / 앞으로 이동** | `Left` / `Right` | `J` / `L` |
-| **5초 뒤로 / 앞으로 이동** | `Shift + Left` / `Shift + Right` | - |
-| **1프레임 뒤로 / 앞으로 이동** | `Ctrl + Left` / `Ctrl + Right` | - |
-| **전체화면 토글 / 해제** | `F` (또는 `F11`) | `Esc` |
-| **동영상 상세 정보 보기** | `?` (Shift + `/`) | - |
-| **재생목록 항목 삭제** | `Delete` | - |
+| **Toggle options panel** | `[` | - |
+| **Toggle playlist** | `]` | - |
+| **Play / Pause** | `Space` | `K` |
+| **Back / forward 1 second** | `Left` / `Right` | `J` / `L` |
+| **Back / forward 5 seconds** | `Shift + Left` / `Shift + Right` | - |
+| **Back / forward 1 frame** | `Ctrl + Left` / `Ctrl + Right` | - |
+| **Toggle / exit fullscreen** | `F` (or `F11`) | `Esc` |
+| **Show video details** | `?` (Shift + `/`) | - |
+| **Remove playlist item** | `Delete` | - |
 
 ---
 
-## 📁 프로젝트 파일 구조
+## 🌐 Language
+- Use **Settings → Language** to choose `System language` (the default) or any installed language. The change is applied **after you restart the program**.
+- Bundled languages: 한국어, English, 简体中文, Español, Português (Brasil), Deutsch. If there is no translation for the system language, English is used.
+- **Adding a language**: copy `locales/en-US.json` to `locales/<language-code>.json` (for example `fr-FR.json`), translate the values, put the display name in `_meta.name`, and keep the `locales` folder next to the executable. It appears in the menu automatically.
+
+---
+
+## 📁 Project Structure
 
 ```
 mp4-trim
 ├ src/
-│  ├ core/                  # 핵심 로직 (FFmpeg 컷팅, 메타데이터/속성 추출, 커스텀 단축키)
-│  ├ ui/                    # UI 컴포넌트 & 다이얼로그
-│  │  ├ widgets/            # 커스텀 타임라인, 비디오 플레이어, 시간 입력 필드 위젯
-│  │  ├ dialogs/            # 단축키 지정 대화상자
-│  │  └ main_window.py      # VideoCutterApp 메인 윈도우 레이아웃 및 이벤트 연동
-│  └ utils/                 # 예외 로깅 팝업 및 시간 변환 포맷 유틸리티
-├ icon.ico              : 프로그램 메인 아이콘
-├ MP4-Trim image.png    : README 대표 스크린샷 이미지
-├ build.bat             : Stand-alone 무손실 분할기 빌드 스크립트 (경량화 / 풀패키지)
-├ mp4-trim.py           : 실행 시작점 (Main Entry Point)
-├ README.md             : 사용 설명서 및 프로젝트 정보
-└ .gitignore            : Git 추적 제외 규칙 파일
+│  ├ core/                  # Core logic (FFmpeg cutting, metadata/property extraction, custom shortcuts, i18n)
+│  ├ ui/                    # UI components & dialogs
+│  │  ├ widgets/            # Custom timeline, video player, time input widgets
+│  │  ├ dialogs/            # Shortcut assignment dialog
+│  │  └ main_window.py      # VideoCutterApp main window layout and event wiring
+│  └ utils/                 # Exception logging popup and time format utilities
+├ locales/              : Translation files per language (ko-KR.json, en-US.json, ...)
+├ icon.ico              : Main program icon
+├ MP4-Trim image.png    : README screenshot
+├ build.bat             : Stand-alone build script (light / full package)
+├ mp4-trim.py           : Main entry point
+├ README.md             : User guide and project information
+└ .gitignore            : Git ignore rules
 ```
 
 ---
 
-## 🛠️ FFmpeg 준비 (필수 사항)
-1. **FFmpeg 다운로드**: [Gyan.dev 공식 홈페이지](https://www.gyan.dev/ffmpeg/builds/)
-2. `ffmpeg-release-essentials.zip` 압축 해제 후 `bin/ffmpeg.exe`를 본 프로젝트 폴더로 복사하거나 시스템 **PATH**에 등록합니다.
+## 🛠️ Preparing FFmpeg (Required)
+1. **Download FFmpeg**: [Gyan.dev official site](https://www.gyan.dev/ffmpeg/builds/)
+2. Extract `ffmpeg-release-essentials.zip`, then copy `bin/ffmpeg.exe` into this project folder or add it to the system **PATH**.
 
 ---
 
-## 📜 버전 히스토리
+## 📜 Version History
 
 - **v1.0.5**
-  - 타임라인 마커 Z축 최상단 보장 (1px 녹색 편집점 / 1px 빨간색 재생헤드 세로선)
-  - 재생바 조작 시 자동 일시정지 기능 적용
-  - 커스텀 단축키 설정 시스템 (Primary / Secondary) 및 `hotkeys.json` 연동
-  - `Ctrl + ← / →` 1프레임 정밀 이동 기능 추가
-  - `?` 키 동영상 상세 속성 정보 조회 연결
-  - 사이드바 애니메이션 C++ 메모리 해제 오류 수정
+  - Timeline markers guaranteed on top of the Z order (1px green cut points / 1px red playhead line)
+  - Automatic pause while operating the seek bar
+  - Custom shortcut system (primary / secondary) backed by `hotkeys.json`
+  - `Ctrl + ← / →` single-frame stepping
+  - `?` key shows detailed video properties
+  - Fixed a C++ memory release error in the sidebar animation
 - **v1.0.4**
-  - PyInstaller 패키징 예외 로깅 팝업 (`sys.excepthook`) 추가
-  - 사이드바 슬라이딩 애니메이션 (`[` / `]`) 추가
-  - 재생목록 히스토리 삭제/유실 항목 자동 정제 기능 추가
+  - Exception logging popup for PyInstaller builds (`sys.excepthook`)
+  - Sidebar sliding animation (`[` / `]`)
+  - Automatic pruning of deleted/missing playlist history items
 - **v1.0.3**
-  - 내장 비디오 플레이어(QMediaPlayer) 및 호버 오버레이 컨트롤 추가
-  - 썸네일 필름스트립 타임라인 바 (FFmpeg 비동기 10개 씬 추출) 추가
-  - 사이드바 재생 목록 (단축키 `]`) 및 히스토리 관리 연동
+  - Built-in video player (QMediaPlayer) and hover overlay controls
+  - Thumbnail filmstrip timeline bar (10 scenes extracted asynchronously with FFmpeg)
+  - Sidebar playlist (shortcut `]`) with history management
 - **v1.0.2**
-  - 저장 파일명 입력창 Enter 단축키 분할 실행 및 중복 입력 시 시각적 테두리 강조 추가
+  - Enter in the output file name box runs the cut; duplicate names are highlighted with a border
 - **v1.0.1**
-  - 작업 히스토리 및 경로 정상화 버그 수정
+  - Fixed task history and path normalization bugs
 - **v1.0.0**
-  - 최초 버전 출시 (초고속 무손실 영상 분할기 기본 기능)
+  - First release (basic ultra-fast lossless video splitter)

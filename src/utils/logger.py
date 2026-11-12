@@ -29,10 +29,11 @@ def custom_excepthook(exc_type, exc_value, exc_traceback):
         pass
     app = QApplication.instance()
     if app:
+        from src.core.i18n import tr
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Icon.Critical)
-        msg.setWindowTitle("프로그램 오류 발생")
-        msg.setText(f"프로그램 실행 중 오류가 발생했습니다:\n\n{exc_value}")
+        msg.setWindowTitle(tr("crash.title"))
+        msg.setText(tr("crash.text", error=exc_value))
         msg.setDetailedText(err_str)
         msg.exec()
     sys.__excepthook__(exc_type, exc_value, exc_traceback)

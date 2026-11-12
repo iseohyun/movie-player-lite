@@ -24,6 +24,8 @@ from src.core.metadata import (
     open_source_file_dir, get_media_creation_time_and_duration
 )
 from src.core.hotkeys import DEFAULT_HOTKEYS, event_to_key_str
+from src.core import i18n
+from src.core.i18n import tr
 from src.core.lock_resolver import (
     norm_path_key,
     release_file_locks,
@@ -35,9 +37,12 @@ from src.ui.widgets.player import (
     EmbeddedVideoPlayer, PEN_SHAPE_LABELS, PEN_COLOR_PRESETS, PEN_DURATION_PRESETS
 )
 from src.ui.dialogs.key_capture import KeyCaptureDialog
+from src.ui.dialogs.about import AboutDialog
+from src.ui.widgets.hint_menu import ShortcutHintMenu, bind_hotkey_hint
 
 SINGLE_INSTANCE_SERVER_NAME = "MoviePlayerLite_SingleInstance_IPC_v1"
-HOTKEYS_SCHEMA_VERSION = 2
+HOTKEYS_SCHEMA_VERSION = 3
+HOTKEY_HINT_ARROWS = {"Left": "←", "Right": "→", "Up": "↑", "Down": "↓"}
 
 
 def create_blue_check_icon(checked: bool) -> QIcon:
@@ -376,7 +381,7 @@ class VideoCutterApp(QWidget):
         # -------------------------------------------------------------
         # 1. 편집 모달 (기본 모달, Z-Priority = 1, 열려 있을 때 재생바 고정 표시)
         # -------------------------------------------------------------
-        self.edit_modal = FloatingModalDialog(self, "편집 및 저장 설정 (단축키: E)", z_priority=1, parent=self)
+        self.edit_modal = FloatingModalDialog(self, tr("edit.modal_title"), z_priority=1, parent=self)
         self.edit_modal.resize(310, 440)
         self.edit_modal.setStyleSheet("""
             QDialog { background-color: #252526; color: white; }
@@ -394,10 +399,10 @@ class VideoCutterApp(QWidget):
         opt_layout.setSpacing(8)
 
         opt_header = QHBoxLayout()
-        opt_title = QLabel("컷팅 & 편집 설정 (단축키: E)")
+        opt_title = QLabel(tr("edit.title"))
         opt_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2d89ef;")
         self.hotkey_btn = QPushButton("⌨")
-        self.hotkey_btn.setToolTip("단축키 설정 열기")
+        self.hotkey_btn.setToolTip(tr("edit.hotkey_btn_tip"))
         self.hotkey_btn.setFixedSize(26, 26)
         self.hotkey_btn.clicked.connect(self.open_hotkey_modal)
         opt_header.addWidget(opt_title, 1)
@@ -411,7 +416,7 @@ class VideoCutterApp(QWidget):
         self.endInput = ArrowKeyLineEdit("00:00:00.00")
 
         time_range_box = QHBoxLayout()
-        time_range_box.addWidget(QLabel("구간:"))
+        time_range_box.addWidget(QLabel(tr("edit.range")))
         time_range_box.addWidget(self.startInput, 1)
         time_range_box.addWidget(QLabel("~"))
         time_range_box.addWidget(self.endInput, 1)
@@ -423,22 +428,22 @@ class VideoCutterApp(QWidget):
         self.nameInput.textChanged.connect(self.on_input_modified)
         self.nameInput.returnPressed.connect(self.on_name_input_enter)
         self.nameInput.textChanged.connect(self.update_name_input_style)
-        self.playOutBtn = QPushButton("컷팅")
-        self.playOutBtn.setToolTip("무손실 컷팅 실행 / 저장 영상 재생")
+        self.playOutBtn = QPushButton(tr("btn.cut"))
+        self.playOutBtn.setToolTip(tr("edit.cut_tip"))
         self.playOutBtn.clicked.connect(self.on_cut_or_play_clicked)
         name_box.addWidget(self.nameInput, 1)
         name_box.addWidget(self.playOutBtn, 0)
 
-        opt_layout.addWidget(QLabel("저장 파일명"))
+        opt_layout.addWidget(QLabel(tr("edit.output_name")))
         opt_layout.addLayout(name_box)
 
         # 저장 옵션
-        self.muteCheck = QCheckBox("음소거 (영상만 가져오기)")
-        self.copyMetaCheck = QCheckBox("속성 복사")
+        self.muteCheck = QCheckBox(tr("edit.mute"))
+        self.copyMetaCheck = QCheckBox(tr("edit.copy_meta"))
         self.copyMetaCheck.setChecked(True)
-        self.autoNumberCheck = QCheckBox("자동 넘버링")
+        self.autoNumberCheck = QCheckBox(tr("edit.auto_number"))
         self.autoNumberCheck.setChecked(False)
-        self.hudCheck = QCheckBox("동영상 상세 정보 HUD 표시 (`)")
+        self.hudCheck = QCheckBox(tr("edit.hud_check"))
         self.hudCheck.toggled.connect(self.on_hud_check_toggled)
         opt_layout.addWidget(self.muteCheck)
         opt_layout.addWidget(self.copyMetaCheck)
@@ -446,10 +451,10 @@ class VideoCutterApp(QWidget):
         opt_layout.addWidget(self.hudCheck)
 
         # 저장 위치
-        opt_layout.addWidget(QLabel("저장 위치"))
-        self.radioSame = QRadioButton("동일 경로 (../)")
-        self.radioOutput = QRadioButton("output 폴더 (../output/)")
-        self.radioCustom = QRadioButton("사용자 지정 (custom)")
+        opt_layout.addWidget(QLabel(tr("edit.save_location")))
+        self.radioSame = QRadioButton(tr("edit.radio_same"))
+        self.radioOutput = QRadioButton(tr("edit.radio_output"))
+        self.radioCustom = QRadioButton(tr("edit.radio_custom"))
         self.radioGroup = QButtonGroup(self)
         self.radioGroup.addButton(self.radioSame)
         self.radioGroup.addButton(self.radioOutput)
@@ -461,11 +466,11 @@ class VideoCutterApp(QWidget):
         dir_box = QHBoxLayout()
         self.dirInput = QLineEdit()
         self.dirInput.textChanged.connect(self.on_input_modified)
-        self.dirBtn = QPushButton("선택")
+        self.dirBtn = QPushButton(tr("btn.select"))
         self.dirBtn.clicked.connect(self.openDirDialog)
         dir_box.addWidget(self.dirInput, 1)
         dir_box.addWidget(self.dirBtn, 0)
-        opt_layout.addWidget(QLabel("저장 경로"))
+        opt_layout.addWidget(QLabel(tr("edit.save_path")))
         opt_layout.addLayout(dir_box)
 
         combo_style = """
@@ -484,18 +489,18 @@ class VideoCutterApp(QWidget):
             }
         """
 
-        opt_layout.addWidget(QLabel("작업 히스토리"))
+        opt_layout.addWidget(QLabel(tr("edit.task_history")))
         self.taskHistoryCombo = QComboBox()
         self.taskHistoryCombo.setStyleSheet(combo_style)
         self.taskHistoryCombo.currentIndexChanged.connect(self.on_task_history_selected)
         opt_layout.addWidget(self.taskHistoryCombo)
 
-        opt_layout.addWidget(QLabel("최근 작업 폴더"))
+        opt_layout.addWidget(QLabel(tr("edit.recent_dirs")))
         hist_box = QHBoxLayout()
         self.historyCombo = QComboBox()
         self.historyCombo.setStyleSheet(combo_style)
         self.historyCombo.currentIndexChanged.connect(self.on_history_combo_changed)
-        self.openDirBtn = QPushButton("열기")
+        self.openDirBtn = QPushButton(tr("btn.open"))
         self.openDirBtn.clicked.connect(self.open_current_directory)
         hist_box.addWidget(self.historyCombo, 1)
         hist_box.addWidget(self.openDirBtn, 0)
@@ -514,7 +519,7 @@ class VideoCutterApp(QWidget):
         # 2. 리스트 모달 (기본 모달보다 Z축 상위에 출력, Z-Priority = 2)
         # -------------------------------------------------------------
         self.playlist_files = []
-        self.playlist_modal = FloatingModalDialog(self, "재생 목록 (단축키: P)", z_priority=2, parent=self)
+        self.playlist_modal = FloatingModalDialog(self, tr("playlist.title"), z_priority=2, parent=self)
         self.playlist_modal.resize(280, 420)
         self.playlist_modal.setStyleSheet("""
             QDialog { background-color: #252526; color: white; }
@@ -530,8 +535,8 @@ class VideoCutterApp(QWidget):
         sidebar_layout.setContentsMargins(10, 10, 10, 10)
 
         sb_header = QHBoxLayout()
-        sb_title = QLabel("재생 목록 (단축키: P)")
-        self.add_file_btn = QPushButton("+ 추가")
+        sb_title = QLabel(tr("playlist.title"))
+        self.add_file_btn = QPushButton(tr("playlist.add"))
         self.add_file_btn.setStyleSheet("background-color: #2d89ef; color: white; padding: 4px 8px; font-weight: bold; border-radius: 4px;")
         self.add_file_btn.clicked.connect(self.openFileDialog)
         sb_header.addWidget(sb_title)
@@ -551,7 +556,7 @@ class VideoCutterApp(QWidget):
         # 3. 단축키 설정 모달
         # -------------------------------------------------------------
         self.hotkey_modal = QDialog(self)
-        self.hotkey_modal.setWindowTitle("단축키 설정")
+        self.hotkey_modal.setWindowTitle(tr("hotkeys.title"))
         self.hotkey_modal.resize(360, 480)
         self.hotkey_modal.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
         hk_modal_layout = QVBoxLayout(self.hotkey_modal)
@@ -638,30 +643,30 @@ class VideoCutterApp(QWidget):
         """)
 
         # 1. 파일 메뉴
-        self.file_menu = self.top_menu_bar.addMenu("파일(&F)")
-        self.act_open_file = QAction("열기", self)
+        self.file_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.file"))
+        self.act_open_file = QAction(tr("menu.file.open"), self)
         self.act_open_file.triggered.connect(self.openFileDialog)
-        self.act_show_playlist = QAction("리스트 보기 (P)", self)
+        self.act_show_playlist = QAction(tr("menu.file.playlist"), self)
         self.act_show_playlist.triggered.connect(lambda: self.toggle_playlist_modal())
         self.file_menu.addAction(self.act_open_file)
         self.file_menu.addAction(self.act_show_playlist)
 
         # 2. 재생 메뉴
-        self.play_menu = self.top_menu_bar.addMenu("재생(&P)")
-        self.speed_menu = self.play_menu.addMenu("배속")
+        self.play_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.play"))
+        self.speed_menu = self.play_menu.addMenu(tr("menu.play.speed"))
         self.speed_actions = {}
         for spd in (0.5, 1.0, 1.25, 1.50, 1.75, 2.00, 3.00):
-            label = f"{spd:.2f}배" if spd not in (0.5, 1.0) else f"{spd:g}배"
+            label = tr("speed.times", value=f"{spd:.2f}" if spd not in (0.5, 1.0) else f"{spd:g}")
             act = QAction(label, self)
             act.triggered.connect(lambda _, r=spd: self.player_widget.set_playback_rate(r))
             self.speed_menu.addAction(act)
             self.speed_actions[spd] = act
 
-        self.act_speed_up = QAction("+0.25배속 (+)", self)
+        self.act_speed_up = QAction(tr("menu.play.speed_up"), self)
         self.act_speed_up.triggered.connect(lambda: self.player_widget.change_playback_rate(0.25))
-        self.act_speed_down = QAction("-0.25배속 (-)", self)
+        self.act_speed_down = QAction(tr("menu.play.speed_down"), self)
         self.act_speed_down.triggered.connect(lambda: self.player_widget.change_playback_rate(-0.25))
-        self.act_speed_reset = QAction("기본배속으로 (0)", self)
+        self.act_speed_reset = QAction(tr("menu.play.speed_reset"), self)
         self.act_speed_reset.triggered.connect(self.player_widget.reset_playback_rate)
 
         self.play_menu.addAction(self.act_speed_up)
@@ -669,19 +674,19 @@ class VideoCutterApp(QWidget):
         self.play_menu.addAction(self.act_speed_reset)
         self.play_menu.addSeparator()
 
-        self.act_play_pause = QAction("멈춤/재생 (Space)", self)
+        self.act_play_pause = QAction(tr("menu.play.play_pause"), self)
         self.act_play_pause.triggered.connect(self.player_widget.toggle_play)
-        self.act_step_1s_prev = QAction("1초 전 (←)", self)
+        self.act_step_1s_prev = QAction(tr("menu.play.step_1s_prev"), self)
         self.act_step_1s_prev.triggered.connect(lambda: self.player_widget.step_time(-1000))
-        self.act_step_1s_next = QAction("1초 후 (→)", self)
+        self.act_step_1s_next = QAction(tr("menu.play.step_1s_next"), self)
         self.act_step_1s_next.triggered.connect(lambda: self.player_widget.step_time(1000))
-        self.act_step_5s_prev = QAction("5초 전 (Shift+←)", self)
+        self.act_step_5s_prev = QAction(tr("menu.play.step_5s_prev"), self)
         self.act_step_5s_prev.triggered.connect(lambda: self.player_widget.step_time(-5000))
-        self.act_step_5s_next = QAction("5초 후 (Shift+→)", self)
+        self.act_step_5s_next = QAction(tr("menu.play.step_5s_next"), self)
         self.act_step_5s_next.triggered.connect(lambda: self.player_widget.step_time(5000))
-        self.act_frame_prev = QAction("1프레임 전 (<)", self)
+        self.act_frame_prev = QAction(tr("menu.play.frame_prev"), self)
         self.act_frame_prev.triggered.connect(lambda: self.player_widget.step_frame(forward=False))
-        self.act_frame_next = QAction("1프레임 후 (>)", self)
+        self.act_frame_next = QAction(tr("menu.play.frame_next"), self)
         self.act_frame_next.triggered.connect(lambda: self.player_widget.step_frame(forward=True))
 
         self.play_menu.addAction(self.act_play_pause)
@@ -693,41 +698,41 @@ class VideoCutterApp(QWidget):
         self.play_menu.addAction(self.act_frame_next)
         self.play_menu.addSeparator()
 
-        self.act_prev_video = QAction("이전 동영상 (PgUp / [)", self)
+        self.act_prev_video = QAction(tr("menu.play.prev_video"), self)
         self.act_prev_video.triggered.connect(self.play_prev_video)
-        self.act_next_video = QAction("다음 동영상 (PgDown / ])", self)
+        self.act_next_video = QAction(tr("menu.play.next_video"), self)
         self.act_next_video.triggered.connect(self.play_next_video)
         self.play_menu.addAction(self.act_prev_video)
         self.play_menu.addAction(self.act_next_video)
         self.play_menu.addSeparator()
 
-        self.act_vol_up = QAction("볼륨 올리기 (↑)", self)
+        self.act_vol_up = QAction(tr("menu.play.vol_up"), self)
         self.act_vol_up.triggered.connect(lambda: self.player_widget.change_volume(0.05))
-        self.act_vol_down = QAction("볼륨 내리기 (↓)", self)
+        self.act_vol_down = QAction(tr("menu.play.vol_down"), self)
         self.act_vol_down.triggered.connect(lambda: self.player_widget.change_volume(-0.05))
-        self.act_toggle_mute = QAction("음소거 (M)", self)
+        self.act_toggle_mute = QAction(tr("menu.play.mute"), self)
         self.act_toggle_mute.triggered.connect(self.player_widget.toggle_mute)
         self.play_menu.addAction(self.act_vol_up)
         self.play_menu.addAction(self.act_vol_down)
         self.play_menu.addAction(self.act_toggle_mute)
 
         # 3. 화면 메뉴
-        self.view_menu = self.top_menu_bar.addMenu("화면(&V)")
-        self.act_zoom_in = QAction("확대 (Ctrl++)", self)
+        self.view_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.view"))
+        self.act_zoom_in = QAction(tr("menu.view.zoom_in"), self)
         self.act_zoom_in.triggered.connect(lambda: self.player_widget.zoom_in())
-        self.act_zoom_out = QAction("축소 (Ctrl+-)", self)
+        self.act_zoom_out = QAction(tr("menu.view.zoom_out"), self)
         self.act_zoom_out.triggered.connect(lambda: self.player_widget.zoom_out())
 
-        self.pan_menu = self.view_menu.addMenu("확대시 이동 (Ctrl+방향키)")
-        act_pan_up = QAction("위로 이동 (Ctrl+↑)", self)
+        self.pan_menu = self._add_hint_menu(self.view_menu, tr("menu.view.pan"))
+        act_pan_up = QAction(tr("menu.view.pan_up"), self)
         act_pan_up.triggered.connect(lambda: self.player_widget.pan_view(0, -20))
-        act_pan_down = QAction("아래로 이동 (Ctrl+↓)", self)
+        act_pan_down = QAction(tr("menu.view.pan_down"), self)
         act_pan_down.triggered.connect(lambda: self.player_widget.pan_view(0, 20))
-        act_pan_left = QAction("왼쪽 이동 (Ctrl+←)", self)
+        act_pan_left = QAction(tr("menu.view.pan_left"), self)
         act_pan_left.triggered.connect(lambda: self.player_widget.pan_view(-20, 0))
-        act_pan_right = QAction("오른쪽 이동 (Ctrl+→)", self)
+        act_pan_right = QAction(tr("menu.view.pan_right"), self)
         act_pan_right.triggered.connect(lambda: self.player_widget.pan_view(20, 0))
-        act_zoom_reset = QAction("확대/위치 초기화 (Ctrl+0)", self)
+        act_zoom_reset = QAction(tr("menu.view.zoom_reset"), self)
         act_zoom_reset.triggered.connect(self.player_widget.reset_zoom_pan)
         self.pan_menu.addAction(act_pan_up)
         self.pan_menu.addAction(act_pan_down)
@@ -741,13 +746,13 @@ class VideoCutterApp(QWidget):
         self.view_menu.addMenu(self.pan_menu)
         self.view_menu.addSeparator()
 
-        self.act_rot_right = QAction("화면 오른쪽 회전 (R)", self)
+        self.act_rot_right = QAction(tr("menu.view.rot_right"), self)
         self.act_rot_right.triggered.connect(self.player_widget.rotate_right)
-        self.act_rot_left = QAction("화면 왼쪽 회전 (L)", self)
+        self.act_rot_left = QAction(tr("menu.view.rot_left"), self)
         self.act_rot_left.triggered.connect(self.player_widget.rotate_left)
-        self.act_flip_h = QAction("화면 좌우반전 (H)", self)
+        self.act_flip_h = QAction(tr("menu.view.flip_h"), self)
         self.act_flip_h.triggered.connect(self.player_widget.flip_horizontal)
-        self.act_flip_v = QAction("화면 상하반전 (V)", self)
+        self.act_flip_v = QAction(tr("menu.view.flip_v"), self)
         self.act_flip_v.triggered.connect(self.player_widget.flip_vertical)
 
         self.view_menu.addAction(self.act_rot_right)
@@ -756,11 +761,11 @@ class VideoCutterApp(QWidget):
         self.view_menu.addAction(self.act_flip_v)
         self.view_menu.addSeparator()
 
-        self.act_screen_normal = QAction("기본화면 (Esc)", self)
+        self.act_screen_normal = QAction(tr("menu.view.screen_normal"), self)
         self.act_screen_normal.triggered.connect(lambda: self.set_screen_mode(0))
-        self.act_screen_full = QAction("전체화면 (F)", self)
+        self.act_screen_full = QAction(tr("menu.view.screen_full"), self)
         self.act_screen_full.triggered.connect(lambda: self.set_screen_mode(2))
-        self.act_screen_stretch = QAction("꽉찬화면", self)
+        self.act_screen_stretch = QAction(tr("menu.view.screen_stretch"), self)
         self.act_screen_stretch.triggered.connect(lambda: self.set_screen_mode(3))
 
         self.view_menu.addAction(self.act_screen_normal)
@@ -768,11 +773,11 @@ class VideoCutterApp(QWidget):
         self.view_menu.addAction(self.act_screen_stretch)
         self.view_menu.addSeparator()
 
-        self.act_toggle_time = QAction("시간/상태 정보 표시 (T)", self)
+        self.act_toggle_time = QAction(tr("menu.view.toggle_time"), self)
         self.act_toggle_time.triggered.connect(self.player_widget.toggle_time_label)
-        self.act_toggle_hud = QAction("상세 설정 정보 표시 (`)", self)
+        self.act_toggle_hud = QAction(tr("menu.view.toggle_hud"), self)
         self.act_toggle_hud.triggered.connect(self.player_widget.toggle_hud_overlay)
-        self.act_show_props = QAction("동영상 속성 모달 보기 (?)", self)
+        self.act_show_props = QAction(tr("menu.view.show_props"), self)
         self.act_show_props.triggered.connect(self.view_source_properties)
 
         self.view_menu.addAction(self.act_toggle_time)
@@ -780,33 +785,54 @@ class VideoCutterApp(QWidget):
         self.view_menu.addAction(self.act_show_props)
 
         # 4. 설정 메뉴
-        self.settings_menu = self.top_menu_bar.addMenu("설정(&S)")
-        self.act_open_hotkeys = QAction("단축키", self)
+        self.settings_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.settings"))
+        self.act_open_hotkeys = QAction(tr("menu.settings.hotkeys"), self)
         self.act_open_hotkeys.triggered.connect(self.open_hotkey_modal)
-        self.act_auto_hide_timeline = QAction("재생바 기본숨김", self)
+        self.act_auto_hide_timeline = QAction(tr("menu.settings.auto_hide_timeline"), self)
         self.act_auto_hide_timeline.triggered.connect(self.toggle_auto_hide_timeline)
-        self.act_auto_hide_menubar = QAction("메뉴바 기본숨김", self)
+        self.act_auto_hide_menubar = QAction(tr("menu.settings.auto_hide_menubar"), self)
         self.act_auto_hide_menubar.triggered.connect(self.toggle_auto_hide_menubar)
 
         self.settings_menu.addAction(self.act_open_hotkeys)
         self.settings_menu.addAction(self.act_auto_hide_timeline)
         self.settings_menu.addAction(self.act_auto_hide_menubar)
 
+        # 4-1. 언어 서브메뉴 (시스템 언어 + 설치된 모든 번역 파일, 재시작 후 적용)
+        self.settings_menu.addSeparator()
+        self.language_menu = self.settings_menu.addMenu(tr("menu.settings.language"))
+        self.language_actions = {}
+        system_lang_name = i18n.language_display_name(i18n.system_language())
+        language_choices = [(i18n.SYSTEM_LANGUAGE, tr("lang.system", name=system_lang_name))]
+        language_choices.extend(i18n.available_languages())
+        for lang_code, lang_label in language_choices:
+            act = QAction(lang_label, self)
+            act.triggered.connect(lambda _, c=lang_code: self.change_language(c))
+            self.language_menu.addAction(act)
+            self.language_actions[lang_code] = act
+            if lang_code == i18n.SYSTEM_LANGUAGE:
+                self.language_menu.addSeparator()
+
+        # 4-2. 프로그램 정보
+        self.settings_menu.addSeparator()
+        self.act_show_about = QAction(tr("menu.settings.about"), self)
+        self.act_show_about.triggered.connect(self.show_about_dialog)
+        self.settings_menu.addAction(self.act_show_about)
+
         # 5. 조작 메뉴
-        self.action_menu = self.top_menu_bar.addMenu("조작(&E)")
-        self.act_open_edit_modal = QAction("편집 모달 호출 (E)", self)
+        self.action_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.action"))
+        self.act_open_edit_modal = QAction(tr("menu.action.open_edit"), self)
         self.act_open_edit_modal.triggered.connect(lambda: self.toggle_edit_modal())
         self.action_menu.addAction(self.act_open_edit_modal)
 
         # 6. 그리기 메뉴
-        self.draw_menu = self.top_menu_bar.addMenu("그리기(&D)")
-        self.act_toggle_draw_mode = QAction("그리기 모드 ON/OFF (D)", self)
+        self.draw_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.draw"))
+        self.act_toggle_draw_mode = QAction(tr("menu.draw.toggle_mode"), self)
         self.act_toggle_draw_mode.triggered.connect(self.player_widget.toggle_drawing_mode)
-        self.act_open_draw_modal = QAction("그리기 도구 팔레트 열기 (Shift+D)", self)
+        self.act_open_draw_modal = QAction(tr("menu.draw.open_palette"), self)
         self.act_open_draw_modal.triggered.connect(lambda: self.toggle_draw_modal())
-        self.act_undo_draw = QAction("마지막 획 취소 (Ctrl+Z)", self)
+        self.act_undo_draw = QAction(tr("menu.draw.undo"), self)
         self.act_undo_draw.triggered.connect(self.player_widget.undo_last_drawing)
-        self.act_clear_draw = QAction("모두 지우기 (C)", self)
+        self.act_clear_draw = QAction(tr("menu.draw.clear"), self)
         self.act_clear_draw.triggered.connect(lambda: self.player_widget.clear_drawings())
 
         self.draw_menu.addAction(self.act_toggle_draw_mode)
@@ -816,7 +842,7 @@ class VideoCutterApp(QWidget):
         self.draw_menu.addSeparator()
 
         # 6-1. 펜 색상 서브메뉴
-        self.draw_color_menu = self.draw_menu.addMenu("펜 색상")
+        self.draw_color_menu = self.draw_menu.addMenu(tr("draw.pen_color"))
         self.draw_color_actions = {}
         for name, hx in PEN_COLOR_PRESETS:
             act = QAction(f"{name} ({hx})", self)
@@ -824,12 +850,12 @@ class VideoCutterApp(QWidget):
             self.draw_color_menu.addAction(act)
             self.draw_color_actions[hx.lower()] = act
         self.draw_color_menu.addSeparator()
-        self.act_custom_pen_color = QAction("사용자 지정 색상 선택...", self)
+        self.act_custom_pen_color = QAction(tr("draw.custom_color"), self)
         self.act_custom_pen_color.triggered.connect(self.choose_custom_pen_color)
         self.draw_color_menu.addAction(self.act_custom_pen_color)
 
         # 6-2. 펜 모양 서브메뉴
-        self.draw_shape_menu = self.draw_menu.addMenu("펜 모양")
+        self.draw_shape_menu = self.draw_menu.addMenu(tr("draw.pen_shape"))
         self.draw_shape_actions = {}
         for sh_key, sh_label in PEN_SHAPE_LABELS.items():
             act = QAction(sh_label, self)
@@ -838,39 +864,39 @@ class VideoCutterApp(QWidget):
             self.draw_shape_actions[sh_key] = act
 
         # 6-3. 펜 두께 서브메뉴
-        self.draw_width_menu = self.draw_menu.addMenu("펜 두께")
+        self.draw_width_menu = self.draw_menu.addMenu(tr("draw.pen_width"))
         self.draw_width_actions = {}
-        for w_px, w_desc in (
-            (2, "2px (아주 얇게)"),
-            (4, "4px (얇게)"),
-            (5, "5px (기본)"),
-            (8, "8px (보통)"),
-            (12, "12px (굵게)"),
-            (18, "18px (아주 굵게)"),
-            (26, "26px (형광마커)"),
+        for w_px, w_desc_key in (
+            (2, "draw.width.very_thin"),
+            (4, "draw.width.thin"),
+            (5, "common.default"),
+            (8, "draw.width.medium"),
+            (12, "draw.width.thick"),
+            (18, "draw.width.very_thick"),
+            (26, "draw.width.marker"),
         ):
-            act = QAction(w_desc, self)
+            act = QAction(f"{w_px}px ({tr(w_desc_key)})", self)
             act.triggered.connect(lambda _, w=w_px: self.player_widget.set_pen_width(w))
             self.draw_width_menu.addAction(act)
             self.draw_width_actions[w_px] = act
 
         # 6-4. 펜 투명도 서브메뉴
-        self.draw_opacity_menu = self.draw_menu.addMenu("펜 투명도")
+        self.draw_opacity_menu = self.draw_menu.addMenu(tr("draw.pen_opacity"))
         self.draw_opacity_actions = {}
-        for op_val, op_desc in (
-            (1.00, "100% (불투명)"),
-            (0.90, "90% (기본)"),
-            (0.75, "75% (반투명)"),
-            (0.50, "50% (연하게)"),
-            (0.30, "30% (매우 연하게)"),
+        for op_val, op_desc_key in (
+            (1.00, "draw.opacity.opaque"),
+            (0.90, "common.default"),
+            (0.75, "draw.opacity.translucent"),
+            (0.50, "draw.opacity.light"),
+            (0.30, "draw.opacity.very_light"),
         ):
-            act = QAction(op_desc, self)
+            act = QAction(f"{int(round(op_val * 100))}% ({tr(op_desc_key)})", self)
             act.triggered.connect(lambda _, op=op_val: self.player_widget.set_pen_opacity(op))
             self.draw_opacity_menu.addAction(act)
             self.draw_opacity_actions[op_val] = act
 
         # 6-5. 펜 유지 시간 서브메뉴
-        self.draw_duration_menu = self.draw_menu.addMenu("펜 유지 시간")
+        self.draw_duration_menu = self.draw_menu.addMenu(tr("draw.pen_duration"))
         self.draw_duration_actions = {}
         for dur_sec, dur_desc in PEN_DURATION_PRESETS:
             act = QAction(dur_desc, self)
@@ -878,7 +904,66 @@ class VideoCutterApp(QWidget):
             self.draw_duration_menu.addAction(act)
             self.draw_duration_actions[dur_sec] = act
 
+        # 메뉴 항목 ↔ 단축키 ID 연결: 이름은 왼쪽, 현재 단축키는 오른쪽에 옅은 색으로 표시된다
+        for act, hotkey_id in (
+            (self.act_show_playlist, "toggle_playlist"),
+            (self.act_speed_up, "speed_up"),
+            (self.act_speed_down, "speed_down"),
+            (self.act_speed_reset, "speed_reset"),
+            (self.act_play_pause, "play_pause"),
+            (self.act_step_1s_prev, "step_1s_prev"),
+            (self.act_step_1s_next, "step_1s_next"),
+            (self.act_step_5s_prev, "step_5s_prev"),
+            (self.act_step_5s_next, "step_5s_next"),
+            (self.act_frame_prev, "step_frame_prev"),
+            (self.act_frame_next, "step_frame_next"),
+            (self.act_prev_video, "prev_video"),
+            (self.act_next_video, "next_video"),
+            (self.act_vol_up, "volume_up"),
+            (self.act_vol_down, "volume_down"),
+            (self.act_toggle_mute, "toggle_mute"),
+            (self.act_zoom_in, "zoom_in"),
+            (self.act_zoom_out, "zoom_out"),
+            (act_pan_up, "pan_up"),
+            (act_pan_down, "pan_down"),
+            (act_pan_left, "pan_left"),
+            (act_pan_right, "pan_right"),
+            (act_zoom_reset, "zoom_reset"),
+            (self.act_rot_right, "rotate_right"),
+            (self.act_rot_left, "rotate_left"),
+            (self.act_flip_h, "flip_h"),
+            (self.act_flip_v, "flip_v"),
+            (self.act_screen_normal, "exit_fullscreen"),
+            (self.act_screen_full, "toggle_fullscreen"),
+            (self.act_toggle_time, "toggle_time_label"),
+            (self.act_toggle_hud, "toggle_hud"),
+            (self.act_show_props, "show_properties"),
+            (self.act_show_about, "show_about"),
+            (self.act_open_edit_modal, "toggle_option"),
+            (self.act_toggle_draw_mode, "toggle_draw_mode"),
+            (self.act_open_draw_modal, "toggle_draw_modal"),
+            (self.act_undo_draw, "undo_drawing"),
+            (self.act_clear_draw, "clear_drawings"),
+        ):
+            bind_hotkey_hint(act, hotkey_id)
+
         self.top_menu_bar.hide()
+
+    def _add_hint_menu(self, parent_menu, title: str) -> ShortcutHintMenu:
+        menu = ShortcutHintMenu(title, self.get_hotkey_hint, parent_menu)
+        parent_menu.addMenu(menu)
+        return menu
+
+    def get_hotkey_hint(self, action_id: str) -> str:
+        """메뉴 오른쪽에 표시할 현재 단축키 문구 (기본 단축키 우선, 없으면 보조 단축키)."""
+        info = self.hotkeys.get(action_id, {})
+        key = info.get("primary") or info.get("secondary") or ""
+        for name, symbol in HOTKEY_HINT_ARROWS.items():
+            if key == name:
+                return symbol
+            if key.endswith("+" + name):
+                return key[:-len(name)] + symbol
+        return key
 
     def layout_top_menu_bar(self):
         if hasattr(self, 'top_menu_bar') and self.top_menu_bar and hasattr(self, 'player_widget'):
@@ -901,6 +986,14 @@ class VideoCutterApp(QWidget):
         self.act_screen_normal.setIcon(create_blue_check_icon(stage == 0))
         self.act_screen_full.setIcon(create_blue_check_icon(stage in (1, 2)))
         self.act_screen_stretch.setIcon(create_blue_check_icon(stage == 3))
+
+        # 언어 메뉴: 저장된 선택값(재시작 후 적용될 언어)에 체크 표시
+        if hasattr(self, 'language_actions'):
+            selected_lang = i18n.get_language_setting()
+            if selected_lang not in self.language_actions:
+                selected_lang = i18n.SYSTEM_LANGUAGE
+            for lang_code, act in self.language_actions.items():
+                act.setIcon(create_blue_check_icon(lang_code == selected_lang))
 
         # 그리기 메뉴 체크 상태 동기화
         if hasattr(self, 'act_toggle_draw_mode'):
@@ -934,13 +1027,51 @@ class VideoCutterApp(QWidget):
         self.player_widget.auto_hide_timeline = not self.player_widget.auto_hide_timeline
         self.sync_menu_check_states()
         self.player_widget.apply_auto_hide_settings()
-        self.show_toast("재생바 기본숨김 ON" if self.player_widget.auto_hide_timeline else "재생바 기본숨김 OFF (항상 표시)")
+        self.show_toast(tr("toast.auto_hide_timeline_on") if self.player_widget.auto_hide_timeline else tr("toast.auto_hide_timeline_off"))
 
     def toggle_auto_hide_menubar(self):
         self.player_widget.auto_hide_menubar = not self.player_widget.auto_hide_menubar
         self.sync_menu_check_states()
         self.player_widget.apply_auto_hide_settings()
-        self.show_toast("메뉴바 기본숨김 ON" if self.player_widget.auto_hide_menubar else "메뉴바 기본숨김 OFF (항상 표시)")
+        self.show_toast(tr("toast.auto_hide_menubar_on") if self.player_widget.auto_hide_menubar else tr("toast.auto_hide_menubar_off"))
+
+    def change_language(self, lang_code: str):
+        """언어 선택을 저장하고, 표시 언어가 달라지면 프로그램을 다시 시작해 즉시 반영한다."""
+        if lang_code == i18n.get_language_setting():
+            return
+        i18n.set_language_setting(lang_code)
+        self.sync_menu_check_states()
+        if lang_code == i18n.SYSTEM_LANGUAGE:
+            target_code = i18n.system_language()
+        else:
+            target_code = lang_code
+        if target_code != i18n.current_language():
+            QMessageBox.information(
+                self, tr("lang.changed_title"),
+                tr("lang.changed_msg", name=i18n.language_display_name(target_code))
+            )
+            self.restart_application()
+
+    def restart_application(self):
+        """현재 창을 정상 종료(설정 저장·IPC 서버 해제)한 뒤 같은 프로그램을 새로 실행한다."""
+        if getattr(sys, "frozen", False):
+            cmd = [sys.executable]
+        else:
+            cmd = [sys.executable, os.path.abspath(sys.argv[0])]
+        current_file = self.fileInput.text().strip() if hasattr(self, "fileInput") else ""
+        if current_file and os.path.isfile(current_file):
+            cmd.append(current_file)
+        env = os.environ.copy()
+        env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"  # onefile 빌드가 새 프로세스에서 다시 풀리도록 지정
+        self.close()
+        try:
+            flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+            subprocess.Popen(cmd, env=env, close_fds=True, creationflags=flags)
+        except Exception as e:
+            logging.error(f"Failed to restart application: {e}")
+
+    def show_about_dialog(self):
+        AboutDialog(self).exec()
 
     def show_player_context_menu(self, global_pos: QPoint):
         ctx = QMenu(self)
@@ -1010,7 +1141,7 @@ class VideoCutterApp(QWidget):
     # 그리기 도구 팔레트 플로팅 모달 및 설정 저장/복원
     # -------------------------------------------------------------
     def build_draw_modal(self):
-        self.draw_modal = FloatingModalDialog(self, "그리기 도구 팔레트 (단축키: Shift+D)", z_priority=2, parent=self)
+        self.draw_modal = FloatingModalDialog(self, tr("draw.modal_title"), z_priority=2, parent=self)
         self.draw_modal.resize(300, 340)
         self.draw_modal.setStyleSheet("""
             QDialog { background-color: #252526; color: white; }
@@ -1046,16 +1177,16 @@ class VideoCutterApp(QWidget):
         # 1. 상단 모드 ON/OFF + 취소/전체지우기 버튼 행
         top_btn_row = QHBoxLayout()
         top_btn_row.setSpacing(6)
-        self.draw_mode_btn = QPushButton("✏ 그리기 OFF (D)")
+        self.draw_mode_btn = QPushButton(tr("draw.mode_btn_off"))
         self.draw_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.draw_mode_btn.clicked.connect(self.player_widget.toggle_drawing_mode)
 
-        self.draw_undo_btn = QPushButton("↩ 취소")
-        self.draw_undo_btn.setToolTip("마지막 획 실행 취소 (Ctrl+Z)")
+        self.draw_undo_btn = QPushButton(tr("draw.undo_btn"))
+        self.draw_undo_btn.setToolTip(tr("draw.undo_tip"))
         self.draw_undo_btn.clicked.connect(self.player_widget.undo_last_drawing)
 
-        self.draw_clear_btn = QPushButton("🗑 지우기")
-        self.draw_clear_btn.setToolTip("화면에 그려진 그림 모두 지우기 (C)")
+        self.draw_clear_btn = QPushButton(tr("draw.clear_btn"))
+        self.draw_clear_btn.setToolTip(tr("draw.clear_tip"))
         self.draw_clear_btn.clicked.connect(lambda: self.player_widget.clear_drawings())
 
         top_btn_row.addWidget(self.draw_mode_btn, 1)
@@ -1065,7 +1196,7 @@ class VideoCutterApp(QWidget):
 
         # 2. 펜 색상 컬러칩 선택 행
         col_header = QHBoxLayout()
-        col_header.addWidget(QLabel("펜 색상"))
+        col_header.addWidget(QLabel(tr("draw.pen_color")))
         col_header.addStretch()
         self.draw_col_hex_lbl = QLabel(self.player_widget.pen_color)
         self.draw_col_hex_lbl.setStyleSheet("color: #9e9e9e; font-size: 11px; font-family: Consolas, monospace;")
@@ -1086,7 +1217,7 @@ class VideoCutterApp(QWidget):
 
         self.draw_custom_col_btn = QPushButton("🎨")
         self.draw_custom_col_btn.setFixedSize(28, 24)
-        self.draw_custom_col_btn.setToolTip("사용자 지정 색상 선택...")
+        self.draw_custom_col_btn.setToolTip(tr("draw.custom_color"))
         self.draw_custom_col_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.draw_custom_col_btn.clicked.connect(self.choose_custom_pen_color)
         swatch_row.addWidget(self.draw_custom_col_btn)
@@ -1095,7 +1226,7 @@ class VideoCutterApp(QWidget):
 
         # 3. 펜 모양 선택
         shape_row = QHBoxLayout()
-        shape_row.addWidget(QLabel("펜 모양"), 0)
+        shape_row.addWidget(QLabel(tr("draw.pen_shape")), 0)
         self.draw_shape_combo = QComboBox()
         for sh_key, sh_label in PEN_SHAPE_LABELS.items():
             self.draw_shape_combo.addItem(sh_label, sh_key)
@@ -1105,7 +1236,7 @@ class VideoCutterApp(QWidget):
 
         # 4. 펜 두께 슬라이더 (1px ~ 30px)
         width_header = QHBoxLayout()
-        width_header.addWidget(QLabel("펜 두께"))
+        width_header.addWidget(QLabel(tr("draw.pen_width")))
         width_header.addStretch()
         self.draw_width_val_lbl = QLabel(f"{self.player_widget.pen_width}px")
         self.draw_width_val_lbl.setStyleSheet("color: #2d89ef; font-weight: bold;")
@@ -1120,7 +1251,7 @@ class VideoCutterApp(QWidget):
 
         # 5. 펜 투명도 슬라이더 (10% ~ 100%)
         op_header = QHBoxLayout()
-        op_header.addWidget(QLabel("펜 투명도 (불투명도)"))
+        op_header.addWidget(QLabel(tr("draw.opacity_label")))
         op_header.addStretch()
         self.draw_opacity_val_lbl = QLabel(f"{int(round(self.player_widget.pen_opacity * 100))}%")
         self.draw_opacity_val_lbl.setStyleSheet("color: #2d89ef; font-weight: bold;")
@@ -1136,7 +1267,7 @@ class VideoCutterApp(QWidget):
 
         # 6. 펜 유지 시간 선택
         dur_row = QHBoxLayout()
-        dur_row.addWidget(QLabel("유지 시간"), 0)
+        dur_row.addWidget(QLabel(tr("draw.duration_label")), 0)
         self.draw_duration_combo = QComboBox()
         for dur_sec, dur_desc in PEN_DURATION_PRESETS:
             self.draw_duration_combo.addItem(dur_desc, dur_sec)
@@ -1163,7 +1294,7 @@ class VideoCutterApp(QWidget):
 
     def choose_custom_pen_color(self):
         initial = QColor(self.player_widget.pen_color)
-        col = QColorDialog.getColor(initial, self, "펜 색상 선택")
+        col = QColorDialog.getColor(initial, self, tr("draw.pick_color_title"))
         if col.isValid():
             self.player_widget.set_pen_color(col.name())
 
@@ -1172,7 +1303,7 @@ class VideoCutterApp(QWidget):
             return
         en = self.player_widget.drawing_enabled
         if hasattr(self, 'draw_mode_btn'):
-            self.draw_mode_btn.setText("✏ 그리기 ON (D)" if en else "✏ 그리기 OFF (D)")
+            self.draw_mode_btn.setText(tr("draw.mode_btn_on") if en else tr("draw.mode_btn_off"))
             if en:
                 self.draw_mode_btn.setStyleSheet(
                     "QPushButton { background-color: #0078d7; color: white; border: 1px solid #5ac8fa; border-radius: 4px; padding: 5px 8px; font-weight: bold; }"
@@ -1306,17 +1437,17 @@ class VideoCutterApp(QWidget):
         hk_layout.setSpacing(6)
 
         hk_header = QHBoxLayout()
-        self.hk_back_btn = QPushButton("닫기")
+        self.hk_back_btn = QPushButton(tr("btn.close"))
         self.hk_back_btn.setStyleSheet("""
             QPushButton { background-color: #383838; color: white; border-radius: 4px; padding: 3px 8px; font-size: 11px; font-weight: bold; }
             QPushButton:hover { background-color: #0078d7; }
         """)
         self.hk_back_btn.clicked.connect(lambda: self.hotkey_modal.close() if hasattr(self, 'hotkey_modal') else None)
 
-        hk_title = QLabel("단축키 설정")
+        hk_title = QLabel(tr("hotkeys.title"))
         hk_title.setStyleSheet("font-size: 13px; font-weight: bold; color: #2d89ef;")
 
-        self.hk_reset_btn = QPushButton("초기화")
+        self.hk_reset_btn = QPushButton(tr("btn.reset"))
         self.hk_reset_btn.setStyleSheet("""
             QPushButton { background-color: #552222; color: white; border-radius: 4px; padding: 3px 6px; font-size: 11px; }
             QPushButton:hover { background-color: #d13438; }
@@ -1329,6 +1460,16 @@ class VideoCutterApp(QWidget):
         hk_header.addStretch()
         hk_header.addWidget(self.hk_reset_btn, 0)
         hk_layout.addLayout(hk_header)
+
+        self.hk_search_input = QLineEdit()
+        self.hk_search_input.setPlaceholderText(tr("hotkeys.search_placeholder"))
+        self.hk_search_input.setClearButtonEnabled(True)
+        self.hk_search_input.setStyleSheet("""
+            QLineEdit { background-color: #1e1e1e; color: #ffffff; border: 1px solid #444; border-radius: 4px; padding: 4px 6px; font-size: 11px; }
+            QLineEdit:focus { border: 1px solid #0078d7; }
+        """)
+        self.hk_search_input.textChanged.connect(lambda _: self.refresh_hotkey_table())
+        hk_layout.addWidget(self.hk_search_input)
 
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
@@ -1350,9 +1491,18 @@ class VideoCutterApp(QWidget):
         while self.hotkey_list_layout.count():
             child = self.hotkey_list_layout.takeAt(0)
             if child.widget():
+                child.widget().hide()
                 child.widget().deleteLater()
 
+        query = self.hk_search_input.text().strip().casefold() if hasattr(self, 'hk_search_input') else ""
+        visible_count = 0
         for action_id, info in self.hotkeys.items():
+            # 검색어는 기능 이름과 단축키(기본/보조) 양쪽에서 찾는다
+            if query and not any(
+                query in str(info.get(field, "")).casefold() for field in ("name", "primary", "secondary")
+            ):
+                continue
+            visible_count += 1
             row_frame = QFrame()
             row_frame.setStyleSheet("QFrame { background-color: #1e1e1e; border-radius: 4px; }")
             row_layout = QHBoxLayout(row_frame)
@@ -1365,7 +1515,7 @@ class VideoCutterApp(QWidget):
 
             btn_p = QPushButton(info['primary'] if info['primary'] else "None")
             btn_p.setFixedWidth(65)
-            btn_p.setToolTip("기본 단축키 변경")
+            btn_p.setToolTip(tr("hotkeys.change_primary_tip"))
             btn_p.setStyleSheet("""
                 QPushButton { background-color: #333; color: #2d89ef; border: 1px solid #444; border-radius: 3px; font-size: 10px; font-weight: bold; padding: 2px; }
                 QPushButton:hover { background-color: #0078d7; color: white; }
@@ -1374,7 +1524,7 @@ class VideoCutterApp(QWidget):
 
             btn_s = QPushButton(info['secondary'] if info['secondary'] else "None")
             btn_s.setFixedWidth(65)
-            btn_s.setToolTip("보조 단축키 변경")
+            btn_s.setToolTip(tr("hotkeys.change_secondary_tip"))
             btn_s.setStyleSheet("""
                 QPushButton { background-color: #333; color: #888; border: 1px solid #444; border-radius: 3px; font-size: 10px; padding: 2px; }
                 QPushButton:hover { background-color: #0078d7; color: white; }
@@ -1386,11 +1536,17 @@ class VideoCutterApp(QWidget):
 
             self.hotkey_list_layout.addWidget(row_frame)
 
+        if visible_count == 0:
+            empty_lbl = QLabel(tr("hotkeys.no_results"))
+            empty_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            empty_lbl.setStyleSheet("font-size: 11px; color: #888888; padding: 12px;")
+            self.hotkey_list_layout.addWidget(empty_lbl)
+
         self.hotkey_list_layout.addStretch()
 
     def change_hotkey(self, action_id: str, key_type: str):
         action_name = self.hotkeys[action_id]['name']
-        type_str = "기본" if key_type == "primary" else "보조"
+        type_str = tr("hotkeys.primary") if key_type == "primary" else tr("hotkeys.secondary")
         dlg = KeyCaptureDialog(action_name, type_str, self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.captured_key_str is not None:
             self.hotkeys[action_id][key_type] = dlg.captured_key_str
@@ -1399,7 +1555,7 @@ class VideoCutterApp(QWidget):
 
     def reset_hotkeys_to_default(self):
         res = QMessageBox.question(
-            self, "확인", "모든 단축키를 초기 설정으로 복원하시겠습니까?",
+            self, tr("common.confirm"), tr("hotkeys.reset_confirm"),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if res == QMessageBox.StandardButton.Yes:
@@ -1416,8 +1572,8 @@ class VideoCutterApp(QWidget):
 
     def reset_cut_button_state(self):
         if hasattr(self, 'playOutBtn') and self.playOutBtn:
-            if self.playOutBtn.text() == "재생":
-                self.playOutBtn.setText("컷팅")
+            if self.playOutBtn.text() == tr("btn.play"):
+                self.playOutBtn.setText(tr("btn.cut"))
                 self.playOutBtn.setStyleSheet("")
                 self.update_output_play_btn_state()
 
@@ -1462,7 +1618,7 @@ class VideoCutterApp(QWidget):
             return
         old_name = region.get('name', '')
         new_name, ok = QInputDialog.getText(
-            self, "편집 영역 이름 수정", "새 저장 파일명을 입력하세요:", text=old_name
+            self, tr("region.rename_title"), tr("region.rename_prompt"), text=old_name
         )
         if ok and new_name.strip():
             new_name = new_name.strip()
@@ -1481,14 +1637,14 @@ class VideoCutterApp(QWidget):
             self.nameInput.setText(new_name)
             self.refresh_playlist_colors()
             self.update_timeline_cut_highlights()
-            self.show_toast(f"편집 영역 이름이 '{new_name}'(으)로 수정되었습니다.")
+            self.show_toast(tr("region.renamed", name=new_name))
 
     def on_timeline_region_delete(self, index: int, region: dict):
         if not region:
             return
         r_name = region.get('name', '')
         res = QMessageBox.question(
-            self, "편집 영역 삭제", f"'{r_name}' 편집 영역 히스토리를 삭제하시겠습니까?",
+            self, tr("region.delete_title"), tr("region.delete_confirm", name=r_name),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )
@@ -1511,7 +1667,7 @@ class VideoCutterApp(QWidget):
 
         self.refresh_playlist_colors()
         self.update_timeline_cut_highlights()
-        self.show_toast("편집 영역 히스토리가 삭제되었습니다.")
+        self.show_toast(tr("region.deleted"))
 
     def animate_sidebar(self, widget: QFrame, target_width: int):
         if hasattr(widget, '_anim') and widget._anim:
@@ -1685,13 +1841,13 @@ class VideoCutterApp(QWidget):
 
         if len(file_paths) == 1:
             file_name = os.path.basename(file_paths[0])
-            msg = f"'{file_name}' 파일을 디스크에서 완전히 삭제하시겠습니까?\n\n경로: {file_paths[0]}"
+            msg = tr("file.delete_confirm_one", name=file_name, path=file_paths[0])
         else:
-            msg = f"선택한 {len(file_paths)}개 파일을 디스크에서 완전히 삭제하시겠습니까?"
+            msg = tr("file.delete_confirm_many", count=len(file_paths))
 
         res = QMessageBox.question(
             self,
-            "파일 물리 삭제 확인",
+            tr("file.delete_title"),
             msg,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
@@ -1727,7 +1883,7 @@ class VideoCutterApp(QWidget):
 
         self.save_playlist_history()
         self.refresh_playlist_colors()
-        self.show_toast(f"{deleted_count}개 파일 삭제 완료")
+        self.show_toast(tr("file.deleted_count", count=deleted_count))
 
     def rename_selected_playlist_file(self):
         item = self.playlist_widget.currentItem()
@@ -1743,7 +1899,7 @@ class VideoCutterApp(QWidget):
                     self.playlist_files = [p for p in self.playlist_files if norm_path_key(p) != old_k]
                     self.save_playlist_history()
                 self.refresh_playlist_colors()
-                self.show_toast("존재하지 않는 유실 파일이어서 재생목록에서 제거되었습니다.")
+                self.show_toast(tr("file.missing_removed"))
             return
             
         old_dir = os.path.dirname(old_file_path)
@@ -1754,8 +1910,8 @@ class VideoCutterApp(QWidget):
             
         new_base, ok = QInputDialog.getText(
             self,
-            "파일 이름 변경 (F2)",
-            "새 파일 이름을 입력하세요:",
+            tr("file.rename_title"),
+            tr("file.rename_prompt"),
             QLineEdit.EchoMode.Normal,
             old_base
         )
@@ -1812,13 +1968,13 @@ class VideoCutterApp(QWidget):
                 self.fileInput.setText(new_file_path)
                 self.update_window_title_for_file(new_file_path)
                 
-            self.show_toast(f"'{old_base}' -> '{new_base}' (으)로 변경되었습니다.")
+            self.show_toast(tr("file.renamed", old=old_base, new=new_base))
         except Exception as e:
-            QMessageBox.critical(self, "에러", f"파일 이름 변경 실패:\n{str(e)}")
+            QMessageBox.critical(self, tr("common.error"), tr("file.rename_failed", error=str(e)))
 
     def save_transform_video(self):
         if not self.player_widget.has_video_loaded or not self.fileInput.text().strip():
-            QMessageBox.warning(self, "경고", "저장할 원본 영상이 선택되지 않았습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("transform.no_source"))
             return
             
         if not self.player_widget.is_transformed():
@@ -1831,8 +1987,8 @@ class VideoCutterApp(QWidget):
         
         save_name, ok = QInputDialog.getText(
             self,
-            "변형 상태 저장 (Ctrl+S)",
-            "저장할 파일 이름을 입력하세요 (동일 이름 시 덮어쓰기):",
+            tr("transform.save_title"),
+            tr("transform.save_prompt"),
             QLineEdit.EchoMode.Normal,
             default_name
         )
@@ -1894,20 +2050,20 @@ class VideoCutterApp(QWidget):
                 
             self.player_widget.reset_transform()
             self.add_file_to_playlist(target_path, load_immediately=True, save_history=True)
-            self.show_toast(f"'{os.path.basename(target_path)}' (으)로 변형 저장되었습니다.")
+            self.show_toast(tr("transform.saved", name=os.path.basename(target_path)))
         except subprocess.CalledProcessError as e:
-            QMessageBox.critical(self, "에러", f"변형 저장 실패:\n{e.stderr}")
+            QMessageBox.critical(self, tr("common.error"), tr("transform.save_failed", error=e.stderr))
         except Exception as e:
-            QMessageBox.critical(self, "에러", f"변형 저장 실패:\n{str(e)}")
+            QMessageBox.critical(self, tr("common.error"), tr("transform.save_failed", error=str(e)))
 
     def capture_current_frame(self):
         if not self.player_widget.has_video_loaded or not self.fileInput.text().strip():
-            QMessageBox.warning(self, "경고", "스크린샷을 캡처할 영상이 선택되지 않았습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("capture.no_source"))
             return
 
         source_file = self.fileInput.text().strip()
         if not os.path.isfile(source_file):
-            QMessageBox.warning(self, "경고", "원본 영상 파일이 존재하지 않습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("capture.source_missing"))
             return
 
         pos_ms = self.player_widget.media_player.position()
@@ -1921,8 +2077,8 @@ class VideoCutterApp(QWidget):
         
         save_name, ok = QInputDialog.getText(
             self,
-            "현재 프레임 스크린샷 저장 (Ctrl+S)",
-            "저장할 스크린샷 이미지 파일 이름을 입력하세요:",
+            tr("capture.title"),
+            tr("capture.prompt"),
             QLineEdit.EchoMode.Normal,
             default_img_name
         )
@@ -1947,9 +2103,9 @@ class VideoCutterApp(QWidget):
 
         try:
             subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
-            self.show_toast(f"'{os.path.basename(target_img_path)}' 스크린샷 저장 완료!")
+            self.show_toast(tr("capture.saved", name=os.path.basename(target_img_path)))
         except Exception as e:
-            QMessageBox.critical(self, "에러", f"스크린샷 캡처 실패:\n{str(e)}")
+            QMessageBox.critical(self, tr("common.error"), tr("capture.failed", error=str(e)))
 
     def clear_playlist(self):
         if self.player_widget.has_video_loaded:
@@ -1973,16 +2129,16 @@ class VideoCutterApp(QWidget):
         if item:
             file_path = item.data(Qt.ItemDataRole.UserRole)
 
-            open_folder_act = QAction("폴더 열기", menu)
+            open_folder_act = QAction(tr("ctx.open_folder"), menu)
             open_folder_act.triggered.connect(lambda: open_source_file_dir(file_path))
 
-            props_act = QAction("속성 보기 (단축키: ?)", menu)
+            props_act = QAction(tr("ctx.properties"), menu)
             props_act.triggered.connect(lambda: show_file_properties(file_path))
 
-            remove_act = QAction("목록에서 제거 (Del)", menu)
+            remove_act = QAction(tr("ctx.remove"), menu)
             remove_act.triggered.connect(self.remove_selected_playlist_item)
 
-            delete_file_act = QAction("파일 물리 삭제 (Ctrl+Del)", menu)
+            delete_file_act = QAction(tr("ctx.delete_file"), menu)
             delete_file_act.triggered.connect(self.delete_selected_playlist_file_permanently)
 
             menu.addAction(open_folder_act)
@@ -1991,7 +2147,7 @@ class VideoCutterApp(QWidget):
             menu.addAction(remove_act)
             menu.addAction(delete_file_act)
 
-        clear_all_act = QAction("전체 목록 비우기", menu)
+        clear_all_act = QAction(tr("ctx.clear_all"), menu)
         clear_all_act.triggered.connect(self.clear_playlist)
         menu.addAction(clear_all_act)
 
@@ -2016,7 +2172,7 @@ class VideoCutterApp(QWidget):
     def openFileDialog(self):
         start_dir = self.get_active_working_dir()
         files, _ = QFileDialog.getOpenFileNames(
-            self, "비디오 파일 선택", start_dir, "Video Files (*.mp4 *.mkv *.mov *.avi *.webm)"
+            self, tr("dialog.select_video"), start_dir, tr("dialog.video_filter") + " (*.mp4 *.mkv *.mov *.avi *.webm)"
         )
         if files:
             for f in files:
@@ -2067,8 +2223,8 @@ class VideoCutterApp(QWidget):
                     print("Error parsing media:", error_msg)
                     QMessageBox.warning(
                         self,
-                        "미디어 정보 분석 실패",
-                        f"동영상 정보(재생 시간)를 가져오지 못했습니다.\n기본 제한 시간(99:59:59.99)이 적용됩니다.\n\n상세 에러:\n{str(e)}"
+                        tr("media.probe_failed_title"),
+                        tr("media.probe_failed", error=str(e))
                     )
                     self.original_duration_cs = 35999999
                     self.original_creation_dt = None
@@ -2090,7 +2246,7 @@ class VideoCutterApp(QWidget):
 
     def openDirDialog(self):
         start_dir = self.get_active_working_dir()
-        directory = QFileDialog.getExistingDirectory(self, "저장 폴더 선택", start_dir)
+        directory = QFileDialog.getExistingDirectory(self, tr("dialog.select_save_dir"), start_dir)
         if directory:
             self.dirInput.setText(directory.replace('\\', '/'))
 
@@ -2102,13 +2258,13 @@ class VideoCutterApp(QWidget):
         normalized_dir = os.path.normpath(target_dir) if target_dir else ""
         if not normalized_dir or not os.path.exists(normalized_dir):
             QMessageBox.warning(
-                self, "경고", "지정된 저장 위치 경로가 하드디스크에 실재하지 않습니다."
+                self, tr("common.warning"), tr("dir.not_exists")
             )
             return
         try:
             os.startfile(normalized_dir)
         except Exception as e:
-            QMessageBox.critical(self, "에러", f"폴더 열기 실패:\n{str(e)}")
+            QMessageBox.critical(self, tr("common.error"), tr("dir.open_failed", error=str(e)))
 
     def adjust_time_input(self, line_edit: ArrowKeyLineEdit, delta_sec: float):
         current_cs = line_edit.time_to_centiseconds(line_edit.displayText())
@@ -2123,21 +2279,21 @@ class VideoCutterApp(QWidget):
             if start_cs > 0:
                 self.player_widget.set_position(start_cs * 10)
         else:
-            QMessageBox.warning(self, "경고", "올바른 원본 파일이 선택되지 않았습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("source.invalid"))
 
     def view_source_properties(self):
         video_path = self.fileInput.text()
         if video_path and os.path.isfile(video_path):
             show_file_properties(video_path)
         else:
-            QMessageBox.warning(self, "경고", "올바른 원본 파일이 선택되지 않았습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("source.invalid"))
 
     def open_source_folder(self):
         video_path = self.fileInput.text()
         if video_path and os.path.isfile(video_path):
             open_source_file_dir(video_path)
         else:
-            QMessageBox.warning(self, "경고", "올바른 원본 파일이 선택되지 않았습니다.")
+            QMessageBox.warning(self, tr("common.warning"), tr("source.invalid"))
 
     def play_output_video(self):
         self.playOutBtn.setStyleSheet("")
@@ -2148,10 +2304,10 @@ class VideoCutterApp(QWidget):
             self.player_widget.load_video(output_file, auto_play=True)
             self.player_widget.setFocus()
         else:
-            QMessageBox.warning(self, "경고", f"편집 영상 파일이 존재하지 않습니다.\n({output_file})")
+            QMessageBox.warning(self, tr("common.warning"), tr("output.missing", path=output_file))
 
     def update_output_play_btn_state(self):
-        if self.playOutBtn.text() == "재생":
+        if self.playOutBtn.text() == tr("btn.play"):
             output_file = self.get_full_output_path()
             is_exist = bool(output_file and os.path.isfile(output_file))
             self.playOutBtn.setEnabled(is_exist)
@@ -2245,7 +2401,7 @@ class VideoCutterApp(QWidget):
         QTimer.singleShot(1000, lambda: self.toast_label.hide() if hasattr(self, 'toast_label') and self.toast_label else None)
 
     def on_cut_or_play_clicked(self):
-        if self.playOutBtn.text() == "재생":
+        if self.playOutBtn.text() == tr("btn.play"):
             self.play_output_video()
         else:
             self.executeCutter()
@@ -2260,13 +2416,13 @@ class VideoCutterApp(QWidget):
 
         if not video_in or not out_dir:
             QMessageBox.warning(
-                self, "경고", "파일 경로 및 저장 위치를 모두 지정하십시오."
+                self, tr("common.warning"), tr("cut.need_paths")
             )
             return
 
         if not os.path.isfile(video_in):
             QMessageBox.warning(
-                self, "경고", "원본 동영상 파일이 존재하지 않습니다."
+                self, tr("common.warning"), tr("cut.source_missing")
             )
             return
 
@@ -2274,7 +2430,7 @@ class VideoCutterApp(QWidget):
         end_cs = self.endInput.time_to_centiseconds(end_time)
         if start_cs >= end_cs or (end_cs - start_cs) < 10:
             QMessageBox.warning(
-                self, "경고", "컷팅 구간이 올바르지 않습니다. (최소 0.1초 이상 지정 필요)"
+                self, tr("common.warning"), tr("cut.invalid_range")
             )
             return
 
@@ -2336,9 +2492,9 @@ class VideoCutterApp(QWidget):
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             out_filename = os.path.basename(video_out)
-            self.show_toast(f"'{out_filename}' (으)로 저장되었습니다.")
+            self.show_toast(tr("cut.saved", name=out_filename))
 
-            self.playOutBtn.setText("재생")
+            self.playOutBtn.setText(tr("btn.play"))
             self.playOutBtn.setStyleSheet("background-color: #ff3b30; color: white; font-weight: bold;")
             self.playOutBtn.setEnabled(True)
             
@@ -2348,7 +2504,7 @@ class VideoCutterApp(QWidget):
             self.refresh_playlist_colors()
             self.update_timeline_cut_highlights()
         except subprocess.CalledProcessError as e:
-            QMessageBox.critical(self, "에러", f"FFmpeg 분할 실패:\n{e.stderr}")
+            QMessageBox.critical(self, tr("common.error"), tr("cut.failed", error=e.stderr))
 
     def save_history(self, path):
         path = path.replace('\\', '/')
@@ -2394,7 +2550,7 @@ class VideoCutterApp(QWidget):
     def refresh_task_history_combo(self):
         self.taskHistoryCombo.blockSignals(True)
         self.taskHistoryCombo.clear()
-        self.taskHistoryCombo.addItem("작업 히스토리 선택...")
+        self.taskHistoryCombo.addItem(tr("history.select"))
         for task in self.task_histories:
             self.taskHistoryCombo.addItem(task['name'])
         self.taskHistoryCombo.blockSignals(False)
@@ -2569,7 +2725,7 @@ class VideoCutterApp(QWidget):
     def on_input_modified(self):
         if not self.is_loading_history:
             self.create_history_flag = True
-        self.playOutBtn.setText("컷팅")
+        self.playOutBtn.setText(tr("btn.cut"))
         self.playOutBtn.setStyleSheet("")
         self.check_target_file_exists()
         self.update_timeline_cut_highlights()
@@ -2707,6 +2863,8 @@ class VideoCutterApp(QWidget):
             self.player_widget.clear_drawings()
         elif matched_action == "undo_drawing":
             self.player_widget.undo_last_drawing()
+        elif matched_action == "show_about":
+            self.show_about_dialog()
         else:
             super().keyPressEvent(event)
 
@@ -2724,7 +2882,7 @@ class VideoCutterApp(QWidget):
             set_win32_window_rounding(int(self.winId()), enable_rounding=True)
             self.player_widget.set_fullscreen_mode(is_video_only=False, stretch_fill=False)
             self.player_widget.apply_auto_hide_settings()
-            self.show_toast("기본화면 모드")
+            self.show_toast(tr("toast.screen_normal"))
 
         elif self.fullscreen_stage == 1:
             self.setWindowFlags(Qt.WindowType.Window)
@@ -2732,7 +2890,7 @@ class VideoCutterApp(QWidget):
             set_win32_window_rounding(int(self.winId()), enable_rounding=True)
             self.player_widget.set_fullscreen_mode(is_video_only=False, stretch_fill=False)
             self.player_widget.apply_auto_hide_settings()
-            self.show_toast("전체화면 모드 [1/3] (표준 전체화면)")
+            self.show_toast(tr("toast.screen_full"))
 
         elif self.fullscreen_stage in (2, 3):
             stretch = (self.fullscreen_stage == 3)
@@ -2744,7 +2902,7 @@ class VideoCutterApp(QWidget):
             if screen:
                 self.setGeometry(screen.geometry())
             self.showFullScreen()
-            msg = "꽉찬화면 모드 (100% 꽉 찬 동영상 모드)" if stretch else "전체화면 모드 (비율 유지 동영상 모드)"
+            msg = tr("toast.screen_stretch") if stretch else tr("toast.screen_keep_ratio")
             self.show_toast(msg)
 
         self.sync_menu_check_states()
@@ -2907,7 +3065,7 @@ class VideoCutterApp(QWidget):
             self.update_timeline_cut_highlights()
 
         self.refresh_playlist_colors()
-        self.show_toast(f"외부 이름 변경 반영: '{old_base}' -> '{new_base}'")
+        self.show_toast(tr("ext.renamed", old=old_base, new=new_base))
 
     def handle_external_file_deleted(self, deleted_path: str, is_active: bool = False):
         """외부에서 파일이 삭제되었을 때: 재생목록에서 즉시 제거하고, 재생 중인 화면은 정지할 때까지 유지"""
@@ -2940,9 +3098,9 @@ class VideoCutterApp(QWidget):
                 self.fileInput.setText("")
                 self.fileInput.blockSignals(False)
                 self.update_window_title_for_file("")
-            self.show_toast(f"외부에서 '{file_name}' 삭제됨: 목록에서 제거 (정지 시까지 화면 유지)")
+            self.show_toast(tr("ext.deleted_active", name=file_name))
         elif removed_any:
-            self.show_toast(f"외부에서 '{file_name}' 파일이 삭제되어 목록에서 제거되었습니다.")
+            self.show_toast(tr("ext.deleted", name=file_name))
 
     def check_external_file_changes(self):
         """주기적으로 재생 중인 파일 핸들 및 재생목록 파일의 외부 이름변경/삭제 여부를 점검"""

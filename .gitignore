@@ -20,6 +20,7 @@ playlist_history.json
 task_history.json
 trim_history.json
 draw_settings.json
+settings.json
 
 # Temporary Executables & Scratch Scripts
 ffmpeg.exe

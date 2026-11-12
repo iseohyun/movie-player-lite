@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPainter, QPixmap, QColor, QPen, QBrush
 from PyQt6.QtMultimedia import QMediaPlayer
 
 from src.core.metadata import get_ffmpeg_path, get_media_creation_time_and_duration
+from src.core.i18n import tr
 
 class FilmstripWidget(QWidget):
     """동영상 재생 바 배경에 그려지는 대표 씬 썸네일 스트립"""
@@ -39,7 +40,7 @@ class FilmstripWidget(QWidget):
         
         if not self.pixmaps:
             painter.setPen(Qt.GlobalColor.darkGray)
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "썸네일 바 로딩 중...")
+            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, tr("timeline.loading_bar"))
             return
 
         n = len(self.pixmaps)
@@ -323,7 +324,7 @@ class TrimmingSliderWidget(QWidget):
         else:
             painter.fillRect(QRectF(0, 0, w, h), QColor(17, 17, 17))
             painter.setPen(QColor(128, 128, 128))
-            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "썸네일 로딩 중...")
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, tr("timeline.loading"))
 
         sx = self.ms_to_x(self.start_ms)
         ex = self.ms_to_x(self.end_ms)

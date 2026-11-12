@@ -7,6 +7,8 @@ import logging
 from ctypes import wintypes
 from PyQt6.QtWidgets import QApplication
 
+from src.core.i18n import tr
+
 
 def norm_path_key(path: str) -> str:
     """경로 비교용 정규화 문자열 반환 (슬래시 통일 + 소문자 변환)"""
@@ -324,7 +326,7 @@ def format_locking_processes_info(file_path: str) -> str:
     if not procs:
         return ""
     desc = ", ".join(f"{p['name']} (PID: {p['pid']})" for p in procs)
-    return f"\n\n[현재 파일 점유 프로세스]: {desc}"
+    return f"\n\n[{tr('lock.holders')}]: {desc}"
 
 
 def safe_rename_with_unlock(src: str, dst: str, player_widget=None):

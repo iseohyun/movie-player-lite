@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ["MOVIE_PLAYER_LITE_LANG"] = "ko-KR"  # 테스트는 한국어 UI 문자열 기준으로 검증
 from PyQt6.QtWidgets import QApplication
 import src.core.metadata
 src.core.metadata.get_detailed_video_info = lambda p: {'duration': 60.0, 'fps': 30.0, 'width': 1920, 'height': 1080}

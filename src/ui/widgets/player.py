@@ -16,34 +16,35 @@ import math
 
 from src.ui.widgets.timeline import TrimmingSliderWidget, ThumbnailGeneratorThread
 from src.utils.time_utils import ms_to_time_str
+from src.core.i18n import tr
 
 
 PEN_SHAPE_LABELS = {
-    "round": "둥근 펜 (기본)",
-    "highlighter": "형광 / 납작 펜",
-    "dashed": "점선 펜",
-    "glow": "네온 글로우 펜",
-    "arrow": "화살표 곡선 펜",
+    "round": tr("pen.shape.round"),
+    "highlighter": tr("pen.shape.highlighter"),
+    "dashed": tr("pen.shape.dashed"),
+    "glow": tr("pen.shape.glow"),
+    "arrow": tr("pen.shape.arrow"),
 }
 
 PEN_COLOR_PRESETS = [
-    ("빨강", "#ff3b30"),
-    ("노랑", "#ffeb3b"),
-    ("초록", "#4cd964"),
-    ("파랑", "#007aff"),
-    ("형광하늘", "#5ac8fa"),
-    ("분홍", "#ff2d55"),
-    ("주황", "#ff9500"),
-    ("흰색", "#ffffff"),
+    (tr("pen.color.red"), "#ff3b30"),
+    (tr("pen.color.yellow"), "#ffeb3b"),
+    (tr("pen.color.green"), "#4cd964"),
+    (tr("pen.color.blue"), "#007aff"),
+    (tr("pen.color.sky"), "#5ac8fa"),
+    (tr("pen.color.pink"), "#ff2d55"),
+    (tr("pen.color.orange"), "#ff9500"),
+    (tr("pen.color.white"), "#ffffff"),
 ]
 
 PEN_DURATION_PRESETS = [
-    (1.0, "1초 후 사라짐"),
-    (2.0, "2초 후 사라짐"),
-    (3.0, "3초 후 사라짐"),
-    (5.0, "5초 후 사라짐"),
-    (10.0, "10초 후 사라짐"),
-    (0.0, "계속 유지 (직접 지우기)"),
+    (1.0, tr("pen.duration.after", sec="1")),
+    (2.0, tr("pen.duration.after", sec="2")),
+    (3.0, tr("pen.duration.after", sec="3")),
+    (5.0, tr("pen.duration.after", sec="5")),
+    (10.0, tr("pen.duration.after", sec="10")),
+    (0.0, tr("pen.duration.keep")),
 ]
 
 
@@ -751,7 +752,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'sync_menu_check_states'):
             main_win.sync_menu_check_states()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"재생 배속: {clamped:g}배")
+            main_win.show_toast(tr("toast.speed", value=f"{clamped:g}"))
 
     def change_playback_rate(self, delta: float):
         self.set_playback_rate(self.playback_rate + delta)
@@ -768,7 +769,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'sync_menu_check_states'):
             main_win.sync_menu_check_states()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"볼륨: {int(round(vol * 100))}%")
+            main_win.show_toast(tr("toast.volume", value=int(round(vol * 100))))
 
     def toggle_mute(self):
         muted = not self.audio_output.isMuted()
@@ -777,7 +778,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'sync_menu_check_states'):
             main_win.sync_menu_check_states()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast("음소거 ON" if muted else "음소거 OFF")
+            main_win.show_toast(tr("toast.mute_on") if muted else tr("toast.mute_off"))
 
     def zoom_in(self, step: float = 0.1):
         self.zoom_scale = round(min(5.0, self.zoom_scale + step), 2)
@@ -785,7 +786,7 @@ class EmbeddedVideoPlayer(QWidget):
         self.refresh_time_label()
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"화면 확대: {int(round(self.zoom_scale * 100))}%")
+            main_win.show_toast(tr("toast.zoom_in", value=int(round(self.zoom_scale * 100))))
 
     def zoom_out(self, step: float = 0.1):
         self.zoom_scale = round(max(0.5, self.zoom_scale - step), 2)
@@ -795,7 +796,7 @@ class EmbeddedVideoPlayer(QWidget):
         self.refresh_time_label()
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"화면 축소: {int(round(self.zoom_scale * 100))}%")
+            main_win.show_toast(tr("toast.zoom_out", value=int(round(self.zoom_scale * 100))))
 
     def pan_view(self, dx: int, dy: int):
         self.pan_x += int(dx)
@@ -811,7 +812,7 @@ class EmbeddedVideoPlayer(QWidget):
         self.refresh_time_label()
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast("화면 확대/위치 초기화 (100%, X:0 Y:0)")
+            main_win.show_toast(tr("toast.zoom_reset"))
 
     # -------------------------------------------------------------
     # 그리기(드로잉 오버레이) 모드 및 펜 속성 제어 메서드
@@ -821,9 +822,9 @@ class EmbeddedVideoPlayer(QWidget):
             return
         if self.drawing_enabled:
             shape_name = PEN_SHAPE_LABELS.get(self.pen_shape, self.pen_shape)
-            dur_str = f"{self.pen_duration:g}초" if self.pen_duration > 0 else "계속유지"
+            dur_str = tr("badge.seconds", sec=f"{self.pen_duration:g}") if self.pen_duration > 0 else tr("badge.keep")
             self.draw_badge.setText(
-                f"[ ✏ 그리기 모드 ON (D) | {shape_name} · {self.pen_width}px · {int(round(self.pen_opacity * 100))}% · {dur_str} | 지우기: C ]"
+                tr("badge.draw", shape=shape_name, width=self.pen_width, opacity=int(round(self.pen_opacity * 100)), duration=dur_str)
             )
             self.draw_badge.adjustSize()
             self.update_transform_badge_position()
@@ -845,7 +846,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'sync_draw_modal_ui'):
             main_win.sync_draw_modal_ui()
         if not silent and hasattr(main_win, 'show_toast'):
-            main_win.show_toast("그리기 모드 ON (마우스 드래그로 그리기)" if self.drawing_enabled else "그리기 모드 OFF")
+            main_win.show_toast(tr("toast.draw_on") if self.drawing_enabled else tr("toast.draw_off"))
 
     def toggle_drawing_mode(self):
         self.set_drawing_enabled(not self.drawing_enabled)
@@ -855,14 +856,14 @@ class EmbeddedVideoPlayer(QWidget):
             self.drawing_overlay.clear_all()
         main_win = self.window()
         if not silent and hasattr(main_win, 'show_toast'):
-            main_win.show_toast("그리기 잔상 모두 지움")
+            main_win.show_toast(tr("toast.draw_cleared"))
 
     def undo_last_drawing(self):
         if hasattr(self, 'drawing_overlay') and self.drawing_overlay:
             undone = self.drawing_overlay.undo_last()
             main_win = self.window()
             if hasattr(main_win, 'show_toast'):
-                main_win.show_toast("마지막 획 실행 취소" if undone else "취소할 그리기 획이 없습니다")
+                main_win.show_toast(tr("toast.draw_undone") if undone else tr("toast.draw_nothing_to_undo"))
 
     def set_pen_color(self, color_hex: str, silent: bool = False):
         c = QColor(color_hex)
@@ -879,7 +880,7 @@ class EmbeddedVideoPlayer(QWidget):
             main_win.save_draw_settings()
         if not silent and hasattr(main_win, 'show_toast'):
             color_label = next((name for name, hx in PEN_COLOR_PRESETS if hx.lower() == self.pen_color.lower()), self.pen_color)
-            main_win.show_toast(f"펜 색상: {color_label}")
+            main_win.show_toast(tr("toast.pen_color", value=color_label))
 
     def set_pen_shape(self, shape_key: str, silent: bool = False):
         if shape_key not in PEN_SHAPE_LABELS:
@@ -894,7 +895,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'save_draw_settings'):
             main_win.save_draw_settings()
         if not silent and hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"펜 모양: {PEN_SHAPE_LABELS[shape_key]}")
+            main_win.show_toast(tr("toast.pen_shape", value=PEN_SHAPE_LABELS[shape_key]))
 
     def set_pen_width(self, width: int, silent: bool = False):
         self.pen_width = max(1, min(40, int(width)))
@@ -907,7 +908,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'save_draw_settings'):
             main_win.save_draw_settings()
         if not silent and hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"펜 두께: {self.pen_width}px")
+            main_win.show_toast(tr("toast.pen_width", value=self.pen_width))
 
     def set_pen_opacity(self, opacity: float, silent: bool = False):
         self.pen_opacity = round(max(0.10, min(1.0, float(opacity))), 2)
@@ -920,7 +921,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'save_draw_settings'):
             main_win.save_draw_settings()
         if not silent and hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"펜 투명도: {int(round(self.pen_opacity * 100))}%")
+            main_win.show_toast(tr("toast.pen_opacity", value=int(round(self.pen_opacity * 100))))
 
     def set_pen_duration(self, duration_sec: float, silent: bool = False):
         self.pen_duration = max(0.0, float(duration_sec))
@@ -933,8 +934,8 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'save_draw_settings'):
             main_win.save_draw_settings()
         if not silent and hasattr(main_win, 'show_toast'):
-            dur_label = f"{self.pen_duration:g}초 후 사라짐" if self.pen_duration > 0 else "계속 유지 (직접 지우기)"
-            main_win.show_toast(f"펜 유지 시간: {dur_label}")
+            dur_label = tr("pen.duration.after", sec=f"{self.pen_duration:g}") if self.pen_duration > 0 else tr("pen.duration.keep")
+            main_win.show_toast(tr("toast.pen_duration", value=dur_label))
 
     # -------------------------------------------------------------
     # 미디어 소스 핸들 (FILE_SHARE_DELETE 지원)
@@ -1101,14 +1102,14 @@ class EmbeddedVideoPlayer(QWidget):
                 self.container_layout.setContentsMargins(4, 4, 4, 4)
             parts = []
             if self.transform_rotation != 0:
-                parts.append(f"{self.transform_rotation}° 회전")
+                parts.append(tr("badge.rotated", deg=self.transform_rotation))
             if self.transform_flip_h:
-                parts.append("수평 반전")
+                parts.append(tr("badge.flip_h"))
             if self.transform_flip_v:
-                parts.append("수직 반전")
+                parts.append(tr("badge.flip_v"))
 
             desc = " | ".join(parts)
-            self.transform_badge.setText(f"[ {desc} ]   저장: Ctrl+S")
+            self.transform_badge.setText(tr("badge.transform", desc=desc))
             self.transform_badge.adjustSize()
             self.update_transform_badge_position()
             self.transform_badge.show()
@@ -1179,7 +1180,7 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(main_win, 'sync_menu_check_states'):
             main_win.sync_menu_check_states()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast("시간 정보 표시 ON" if self.show_time_label else "시간 정보 표시 OFF")
+            main_win.show_toast(tr("toast.time_on") if self.show_time_label else tr("toast.time_off"))
 
     def toggle_hud_overlay(self):
         """백틱(`) 키 또는 메뉴를 통한 상세 설정 정보 HUD 단독 토글"""
@@ -1193,7 +1194,7 @@ class EmbeddedVideoPlayer(QWidget):
             main_win.sync_menu_check_states()
         self.update_hud()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast("상세 설정 정보 표시 ON" if self.force_hud_visible else "상세 설정 정보 표시 OFF")
+            main_win.show_toast(tr("toast.hud_on") if self.force_hud_visible else tr("toast.hud_off"))
 
     def reset_transform(self):
         self.transform_rotation = 0
@@ -1207,32 +1208,32 @@ class EmbeddedVideoPlayer(QWidget):
     def flip_horizontal(self):
         self.transform_flip_h = not self.transform_flip_h
         self.update_transform_border()
-        status = "좌우반전 적용" if self.transform_flip_h else "좌우반전 해제"
+        status = tr("toast.flip_h_on") if self.transform_flip_h else tr("toast.flip_h_off")
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"{status} (저장: Ctrl+S)")
+            main_win.show_toast(tr("toast.save_hint", status=status))
 
     def flip_vertical(self):
         self.transform_flip_v = not self.transform_flip_v
         self.update_transform_border()
-        status = "상하반전 적용" if self.transform_flip_v else "상하반전 해제"
+        status = tr("toast.flip_v_on") if self.transform_flip_v else tr("toast.flip_v_off")
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"{status} (저장: Ctrl+S)")
+            main_win.show_toast(tr("toast.save_hint", status=status))
 
     def rotate_right(self):
         self.transform_rotation = (self.transform_rotation + 90) % 360
         self.update_transform_border()
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"오른쪽 90° 회전 (총 {self.transform_rotation}° | 저장: Ctrl+S)")
+            main_win.show_toast(tr("toast.rot_right", deg=self.transform_rotation))
 
     def rotate_left(self):
         self.transform_rotation = (self.transform_rotation - 90) % 360
         self.update_transform_border()
         main_win = self.window()
         if hasattr(main_win, 'show_toast'):
-            main_win.show_toast(f"왼쪽 90° 회전 (총 {self.transform_rotation}° | 저장: Ctrl+S)")
+            main_win.show_toast(tr("toast.rot_left", deg=self.transform_rotation))
 
     def toggle_play(self):
         if self.media_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
@@ -1280,15 +1281,15 @@ class EmbeddedVideoPlayer(QWidget):
         parts = []
         zoom_pct = int(round(self.zoom_scale * 100))
         if zoom_pct != 100 or self.pan_x != 0 or self.pan_y != 0:
-            parts.append(f"확대 {zoom_pct}%, 위치 X:{self.pan_x} Y:{self.pan_y}")
+            parts.append(tr("status.zoom", zoom=zoom_pct, x=self.pan_x, y=self.pan_y))
         if abs(self.playback_rate - 1.0) > 1e-4:
-            parts.append(f"배속 {self.playback_rate:g}x")
+            parts.append(tr("status.speed", value=f"{self.playback_rate:g}"))
         if self.transform_rotation != 0:
-            parts.append(f"회전 {self.transform_rotation}°")
+            parts.append(tr("status.rotation", deg=self.transform_rotation))
         if self.transform_flip_h:
-            parts.append("좌우반전")
+            parts.append(tr("status.flip_h"))
         if self.transform_flip_v:
-            parts.append("상하반전")
+            parts.append(tr("status.flip_v"))
         return " | ".join(parts)
 
     def refresh_time_label(self, override_pos_ms: int = None):
@@ -1370,16 +1371,16 @@ class EmbeddedVideoPlayer(QWidget):
             ctrl_pressed = bool(QApplication.keyboardModifiers() & Qt.KeyboardModifier.ControlModifier)
 
             text = (
-                f"[ 동영상 상세 정보 ]\n"
-                f"• 파일명: {os.path.basename(self.video_path_cached)}\n"
-                f"• 해상도: {self.video_info.get('width', 0)}x{self.video_info.get('height', 0)} ({self.video_info.get('nickname', '')})\n"
-                f"• 비율: {self.video_info.get('aspect_ratio', '')}\n"
-                f"• 프레임: {fps:.2f} fps\n"
-                f"• 총길이: {self.video_info.get('duration', '')}\n"
-                f"• 현재시각: {time_str} {frame_str}\n"
-                f"• 배속/확대: {self.playback_rate:g}x / {int(round(self.zoom_scale * 100))}% (X:{self.pan_x}, Y:{self.pan_y})\n"
-                f"• 데이터레이트: {self.video_info.get('bitrate', '')}\n"
-                f"• 비트심도: {self.video_info.get('bit_depth', '')} ({self.video_info.get('pix_fmt', '')})"
+                f"{tr('hud.title')}\n"
+                f"• {tr('hud.file')}: {os.path.basename(self.video_path_cached)}\n"
+                f"• {tr('hud.resolution')}: {self.video_info.get('width', 0)}x{self.video_info.get('height', 0)} ({self.video_info.get('nickname', '')})\n"
+                f"• {tr('hud.ratio')}: {self.video_info.get('aspect_ratio', '')}\n"
+                f"• {tr('hud.frame')}: {fps:.2f} fps\n"
+                f"• {tr('hud.duration')}: {self.video_info.get('duration', '')}\n"
+                f"• {tr('hud.current')}: {time_str} {frame_str}\n"
+                f"• {tr('hud.speed_zoom')}: {self.playback_rate:g}x / {int(round(self.zoom_scale * 100))}% (X:{self.pan_x}, Y:{self.pan_y})\n"
+                f"• {tr('hud.bitrate')}: {self.video_info.get('bitrate', '')}\n"
+                f"• {tr('hud.bit_depth')}: {self.video_info.get('bit_depth', '')} ({self.video_info.get('pix_fmt', '')})"
             )
 
             if ctrl_pressed:
@@ -1389,9 +1390,9 @@ class EmbeddedVideoPlayer(QWidget):
                         break
                     meta_lines.append(f"{k}: {v}")
                 meta_str = "\n  ".join(meta_lines) if meta_lines else "None"
-                text += f"\n• 메타데이터 (확장):\n  {meta_str}"
+                text += f"\n• {tr('hud.metadata')}:\n  {meta_str}"
             else:
-                text += f"\n\n[💡 Ctrl 키를 누르면 상세 메타데이터가 표시됩니다]"
+                text += f"\n\n{tr('hud.ctrl_hint')}"
 
             if text != self._last_hud_text:
                 self.info_overlay.setText(text)
