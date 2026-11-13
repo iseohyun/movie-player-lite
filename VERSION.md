@@ -1,5 +1,30 @@
 # Movie Player Lite Version History
 
+## [v1.7.0] - 2026-11-13 (Multi-Language UI, YouTube Playback, Installer, Hotkey Search & Menu Shortcut Hints)
+### Added
+- **Multi-Language UI (6 languages)**:
+  - All UI strings moved to `locales/*.json` (한국어, English, 简体中文, Español, Português, Deutsch).
+  - `Settings > Language`: follows the system language by default; any installed locale can be selected and the app restarts to apply it.
+  - New languages can be added by dropping a `locales/<code>.json` file next to the app.
+- **YouTube URL Playback (`Ctrl+U`)**:
+  - First play streams up to 1080p immediately while saving an mp4 in the background.
+  - Later plays of the same video use the saved offline file, so cutting and thumbnails work.
+- **Windows Installer (`MoviePlayerLite-Setup.exe`)**:
+  - Per-user install wizard: install folder, desktop shortcut, default file types per extension.
+  - Detects FFmpeg during setup and downloads the latest release when it is missing or outdated.
+- **Hotkey Search**: search the shortcut list by function name or by key.
+- **About Dialog (`F1`)**: lists the open-source components with version and license.
+- **Dev Script**: `run-dev.bat` stops the running app, rebuilds, and launches it.
+
+### Changed
+- **Menu Shortcut Display**: item names are left-aligned and the current shortcut is shown right-aligned in a dimmed color (reflects user changes).
+- **Default Hotkeys**: playlist `L` / `F12`, rotate right `]`, rotate left `[`. The `[` / `]` secondary keys for previous/next video were removed (`PgUp` / `PgDown` remain).
+  - Saved custom hotkeys are reset to the new defaults once on first launch.
+- **FFmpeg Lookup Order**: the copy next to the exe is used first, then `PATH`, then the bundled one.
+- **README**: rewritten for first-time users in all six languages, with a direct installer download link.
+
+---
+
 ## [v1.6.1] - 2026-09-06 (FFmpeg Cutting Fix, Playlist Duplicate Prevention, Missing File Removal on F2, Transform Save Fix)
 ### Fixed / Enhanced
 - **FFmpeg Lossless Video Cutting Fix**:

@@ -31,7 +31,8 @@ LicenseFile=LICENSE
 SetupIconFile=icon.ico
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=installer_output
-OutputBaseFilename=MoviePlayerLite-Setup-{#AppVersion}
+; Fixed name so the README link .../releases/latest/download/MoviePlayerLite-Setup.exe always works
+OutputBaseFilename=MoviePlayerLite-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

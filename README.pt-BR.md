@@ -2,99 +2,143 @@
 
 [English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | **Português** | [Deutsch](README.de.md)
 
-## 📌 Visão geral e objetivo
-- O **Movie Player Lite** é um reprodutor e divisor de vídeo sem perdas ultrarrápido que evita a perda de tempo e de qualidade causada pela recodificação da linha do tempo ao editar vídeos grandes de alta qualidade.
-- Seu **corte sem perdas (stream copy) baseado em FFmpeg** extrai instantaneamente apenas o trecho necessário, sem perda de qualidade.
+Um reprodutor de vídeo gratuito para Windows que permite **recortar só o trecho que você precisa, na hora e sem perder qualidade**.
 
 ---
 
-## 🔥 Principais recursos e uso
+## ⬇️ Baixar e instalar
 
-### 1. Reprodutor integrado e controle deslizante da linha do tempo
-- **Reprodutor de vídeo integrado**: baseado em QMediaPlayer; reproduzir/pausar/tela cheia com clique, clique duplo ou a sobreposição do mouse
-- **Linha do tempo com miniaturas de 10 cenas extraídas de forma assíncrona**: uma tira de quadros que mostra o vídeo inteiro de relance
-- **Marcadores inteligentes de linha vertical de 1px**: início/fim do corte (linhas verdes de 1px) e a posição atual (linha vermelha de 1px) são sempre desenhados por cima
-- **Pausa inteligente**: ao segurar ou arrastar a barra de progresso durante a reprodução, o vídeo pausa automaticamente para um controle preciso
+### 👉 [Baixar o instalador do Movie Player Lite (Windows 10 / 11)](https://github.com/iseohyun/movie-player-lite/releases/latest/download/MoviePlayerLite-Setup.exe)
 
-### 2. Barras laterais de opções, histórico e lista de reprodução
-- **Painel de opções à esquerda (`[`)**: sem áudio, copiar propriedades de captura, numeração automática e escolha do caminho de salvamento (mesma pasta / output / personalizada)
-- **Painel de atalhos personalizados (`⌨`)**: altere e salve você mesmo os atalhos principal e secundário (`hotkeys.json`)
-- **Painel da lista de reprodução à direita (`]`)**: gerencie os vídeos recentes, adicione arquivos ou arraste e solte, remova itens com Delete ou limpe tudo, com limpeza automática de arquivos ausentes (`playlist_history.json`)
-- **Animação de deslizamento suave**: abertura e fechamento otimizados das barras laterais ao pressionar um atalho
+1. **Clique no link acima.** Um arquivo chamado `MoviePlayerLite-Setup.exe` será baixado.
+2. **Dê um clique duplo no arquivo baixado.** Normalmente ele fica na pasta `Downloads`.
+3. Se aparecer uma janela azul **"O Windows protegeu o computador"**, clique em **Mais informações** → **Executar assim mesmo**.
+   O Windows mostra esse aviso para programas feitos por pessoas físicas; não significa que há algo errado com o programa.
+4. Escolha o idioma e vá clicando em **Avançar**. Você pode deixar as opções como estão.
 
----
+   | Opção | O que faz |
+   | :--- | :--- |
+   | Pasta de instalação | Deixe como está, a não ser que precise de outro local. |
+   | Criar um atalho na área de trabalho | Marque se quiser um ícone na área de trabalho. |
+   | Tipos de arquivo reproduzidos por padrão | Os tipos marcados (como `.mp4`) abrem neste programa com um clique duplo. |
+   | Baixar o FFmpeg mais recente | **Deixe marcada.** Baixa o componente necessário para cortar e para salvar vídeos do YouTube. Se você já tiver, esta opção não aparece. |
 
-## ⌨️ Atalhos padrão
+5. Clique em **Instalar**, aguarde e depois clique em **Concluir**. O programa será iniciado.
 
-| Função | Principal (Primary) | Secundário (Secondary) |
-| :--- | :---: | :---: |
-| **Alternar painel de opções** | `[` | - |
-| **Alternar lista de reprodução** | `]` | - |
-| **Reproduzir / Pausar** | `Space` | `K` |
-| **Voltar / avançar 1 segundo** | `Left` / `Right` | `J` / `L` |
-| **Voltar / avançar 5 segundos** | `Shift + Left` / `Shift + Right` | - |
-| **Voltar / avançar 1 quadro** | `Ctrl + Left` / `Ctrl + Right` | - |
-| **Alternar / sair da tela cheia** | `F` (ou `F11`) | `Esc` |
-| **Ver detalhes do vídeo** | `?` (Shift + `/`) | - |
-| **Remover item da lista** | `Delete` | - |
+- Não é preciso ter direitos de administrador. Funciona no Windows 10 / 11 de 64 bits.
+- **Para remover**, abra `Configurações` → `Aplicativos` → `Aplicativos instalados` no Windows, encontre **Movie Player Lite** e clique em `Desinstalar`.
 
 ---
 
-## 🌐 Idioma
-- Em **Configurações → Idioma**, escolha `Idioma do sistema` (padrão) ou qualquer idioma instalado. A alteração é aplicada **após reiniciar o programa**.
-- Idiomas incluídos: 한국어, English, 简体中文, Español, Português (Brasil), Deutsch. Se não houver tradução para o idioma do sistema, o inglês é usado.
-- **Adicionar um idioma**: copie `locales/en-US.json` para `locales/<código-do-idioma>.json` (por exemplo `fr-FR.json`), traduza os valores, coloque o nome de exibição em `_meta.name` e mantenha a pasta `locales` ao lado do executável. Ele aparece no menu automaticamente.
+## 🎞️ O que você pode fazer
+
+- **Corte ultrarrápido sem perda de qualidade** — nada é recodificado, então até vídeos longos levam segundos.
+- **Girar ou inverter a imagem e salvar**, **salvar o quadro atual como captura de tela**
+- **Desenhar sobre o vídeo** — os traços somem depois de um instante; ótimo para explicar algo.
+- **Reproduzir a partir de um endereço do YouTube** — na primeira vez é transmitido na hora; depois, o arquivo salvo é reproduzido.
+- **Velocidade de reprodução, zoom e movimento, avanço quadro a quadro, lista de reprodução**
+- **Seis idiomas** — 한국어, English, 简体中文, Español, Português, Deutsch
 
 ---
 
-## 📁 Estrutura do projeto
+## 🚀 Primeiros passos
+
+**Abrir um vídeo**
+Arraste um arquivo de vídeo para a janela do programa. Ou clique com o botão direito na imagem e escolha `Arquivo` → `Abrir`.
+
+**Cortar o trecho desejado**
+1. Pressione `E` para abrir a janela de edição.
+2. Arraste as **duas linhas verdes** na linha do tempo, na parte de baixo, para definir o início e o fim.
+3. Clique em **Cortar**. O original não é alterado e um novo arquivo é criado.
+
+**Assistir a um vídeo do YouTube**
+Pressione `Ctrl + U` e cole o endereço do YouTube. Use apenas com vídeos que você tem o direito de assistir.
+
+**Mostrar o menu**
+Pressione `Alt` ou clique com o botão direito na imagem. Os atalhos aparecem à direita de cada item do menu.
+
+---
+
+## ⌨️ Atalhos mais usados
+
+| Função | Atalho |
+| :--- | :---: |
+| Reproduzir / Pausar | `Space` |
+| Voltar / avançar 1 segundo | `←` / `→` |
+| Voltar / avançar 5 segundos | `Shift + ←` / `Shift + →` |
+| Voltar / avançar um quadro | `<` / `>` |
+| Aumentar / diminuir volume | `↑` / `↓` |
+| Sem áudio | `M` |
+| Mais rápido / mais lento / velocidade normal | `+` / `-` / `0` |
+| Tela cheia / sair | `F` / `Esc` |
+| Janela de edição (corte) | `E` |
+| Lista de reprodução | `L` |
+| Abrir um endereço do YouTube | `Ctrl + U` |
+| Girar (direita / esquerda) | `]` / `[` |
+| Ampliar / reduzir / redefinir | `Ctrl + +` / `Ctrl + -` / `Ctrl + 0` |
+| Salvar vídeo girado · captura de tela | `Ctrl + S` |
+| Desenho ligado/desligado / apagar tudo | `D` / `C` |
+| Vídeo anterior / próximo | `PgUp` / `PgDown` |
+| Sobre | `F1` |
+
+Todos os atalhos podem ser pesquisados e alterados em `Configurações` → `Atalhos`.
+
+---
+
+## 🌐 Mudar o idioma
+
+Escolha em `Configurações` → `Idioma`. O programa reinicia e aplica na hora. No início ele segue o idioma do Windows.
+
+---
+
+## ❓ Perguntas frequentes
+
+**Aparece a janela "O Windows protegeu o computador".**
+O Windows mostra esse aviso para programas que não são assinados com um certificado pago. Clique em **Mais informações** → **Executar assim mesmo** para instalar.
+
+**O que é o FFmpeg? Eu preciso dele?**
+É uma ferramenta gratuita que corta e junta vídeos. Sem ela você ainda consegue reproduzir vídeos, mas o corte e o salvamento de vídeos do YouTube não funcionam. Deixe a opção marcada durante a instalação e ele é baixado automaticamente.
+
+**Um vídeo do YouTube não abre.**
+Isso pode acontecer por um tempo quando o YouTube muda o site. Baixe o instalador mais recente pelo link acima e instale de novo.
+
+**Onde ficam os vídeos do YouTube salvos?**
+Na pasta `%APPDATA%\MP4-Trim\youtube_cache`. Cole esse caminho na barra de endereços do Explorador de Arquivos para abrir. Apague arquivos de lá se ocupar espaço demais.
+
+**Se eu desinstalar o programa, meus vídeos são apagados?**
+Não. Só o programa é removido; seus arquivos de vídeo e os trechos que você cortou continuam onde estão.
+
+---
+
+## 🛠️ Para desenvolvedores
+
+<details>
+<summary>Executar e compilar a partir do código-fonte</summary>
+
+Você precisa de: Python 3.12, `pip install PyQt6 yt-dlp pyinstaller` e FFmpeg no PATH
 
 ```
-mp4-trim
-├ src/
-│  ├ core/                  # Lógica principal (corte com FFmpeg, extração de metadados/propriedades, atalhos personalizados, i18n)
-│  ├ ui/                    # Componentes de UI e diálogos
-│  │  ├ widgets/            # Linha do tempo, reprodutor de vídeo e campo de tempo personalizados
-│  │  ├ dialogs/            # Diálogo de atribuição de atalhos
-│  │  └ main_window.py      # Layout da janela principal VideoCutterApp e ligação de eventos
-│  └ utils/                 # Janela de registro de exceções e utilitários de formato de tempo
-├ locales/              : Arquivos de tradução por idioma (ko-KR.json, en-US.json, ...)
-├ icon.ico              : Ícone principal do programa
-├ MP4-Trim image.png    : Captura de tela do README
-├ build.bat             : Script de build independente (versão leve / pacote completo)
-├ mp4-trim.py           : Ponto de entrada (Main Entry Point)
-├ README.md             : Guia de uso e informações do projeto
-└ .gitignore            : Regras de exclusão do Git
+python movie-player-lite.py      executar a partir do código-fonte
+.\run-dev.bat                    fechar o app em execução -> recompilar -> iniciar
+.\build-installer.bat            gerar o instalador (requer Inno Setup 6)
 ```
 
+- O instalador é gerado em `installer_output\MoviePlayerLite-Setup.exe`. Envie-o para uma release do GitHub com esse mesmo nome e o link de download deste documento apontará para a versão mais recente.
+- A versão mostrada pelo instalador é lida da primeira entrada de `VERSION.md`.
+- **Adicionar um idioma**: copie `locales/en-US.json` para `locales/<código-do-idioma>.json`, traduza, coloque o nome de exibição em `_meta.name` e ele aparece no menu automaticamente.
+
+```
+src/core/       lógica principal (corte e metadados, atalhos, i18n, YouTube)
+src/ui/         interface (janela principal, reprodutor e linha do tempo, diálogos)
+locales/        arquivos de tradução por idioma
+installer.iss   script do instalador
+```
+
+</details>
+
 ---
 
-## 🛠️ Preparar o FFmpeg (obrigatório)
-1. **Baixar o FFmpeg**: [site oficial da Gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
-2. Extraia `ffmpeg-release-essentials.zip` e copie `bin/ffmpeg.exe` para a pasta deste projeto, ou adicione-o ao **PATH** do sistema.
+## 📜 Licença e histórico
 
----
-
-## 📜 Histórico de versões
-
-- **v1.0.5**
-  - Marcadores da linha do tempo sempre no topo do eixo Z (pontos de corte verdes de 1px / linha vermelha do cursor de 1px)
-  - Pausa automática ao manipular a barra de progresso
-  - Sistema de atalhos personalizados (Primary / Secondary) integrado ao `hotkeys.json`
-  - Movimento preciso de 1 quadro com `Ctrl + ← / →`
-  - A tecla `?` mostra as propriedades detalhadas do vídeo
-  - Corrigido um erro de liberação de memória C++ na animação da barra lateral
-- **v1.0.4**
-  - Janela de registro de exceções para builds do PyInstaller (`sys.excepthook`)
-  - Animação de deslizamento das barras laterais (`[` / `]`)
-  - Limpeza automática de itens excluídos ou ausentes do histórico da lista
-- **v1.0.3**
-  - Reprodutor de vídeo integrado (QMediaPlayer) e controles sobrepostos ao passar o mouse
-  - Linha do tempo de miniaturas (10 cenas extraídas de forma assíncrona com FFmpeg)
-  - Lista de reprodução lateral (atalho `]`) com gerenciamento de histórico
-- **v1.0.2**
-  - Enter no campo do nome de saída executa o corte; nomes duplicados são destacados com uma borda
-- **v1.0.1**
-  - Corrigidos erros do histórico de tarefas e da normalização de caminhos
-- **v1.0.0**
-  - Primeira versão (recursos básicos do divisor de vídeo sem perdas ultrarrápido)
+- Licença: [GPL v3](LICENSE). Pressione `F1` no programa para ver os softwares de código aberto utilizados.
+- Histórico de alterações: [VERSION.md](VERSION.md)

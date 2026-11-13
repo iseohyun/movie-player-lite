@@ -48,5 +48,5 @@ if errorlevel 1 (
 )
 
 echo.
-echo Installer created: installer_output\MoviePlayerLite-Setup-%APP_VERSION%.exe
+echo Installer created: installer_output\MoviePlayerLite-Setup.exe  (version %APP_VERSION%)
 endlocal
