@@ -1,6 +1,6 @@
 # 🎬 Movie Player Lite
 
-[English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | **Español** | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
+[English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | **Español** | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
 
 Un reproductor de vídeo gratuito para Windows que te permite **recortar solo la parte que necesitas, al instante y sin perder calidad**.
 
@@ -37,7 +37,7 @@ Un reproductor de vídeo gratuito para Windows que te permite **recortar solo la
 - **Dibujar sobre el vídeo** — los trazos desaparecen al cabo de un momento; muy útil para explicar algo.
 - **Reproducir desde una dirección de YouTube** — la primera vez se transmite al instante y después se reproduce el archivo guardado.
 - **Velocidad de reproducción, zoom y desplazamiento, avance fotograma a fotograma, lista de reproducción**
-- **Seis idiomas** — 한국어, English, 简体中文, Español, Português, Deutsch
+- **Siete idiomas** — 한국어, English, 简体中文, 日本語, Español, Português, Deutsch
 
 ---
 
@@ -88,6 +88,7 @@ Todos los atajos se pueden buscar y cambiar en `Configuración` → `Atajos`.
 ## 🌐 Cambiar el idioma
 
 Elígelo en `Configuración` → `Idioma`. El programa se reinicia y lo aplica al momento. Al principio sigue el idioma de Windows.
+No hace falta añadir un paquete de idioma de Windows para mostrar otros idiomas.
 
 ---
 

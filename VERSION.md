@@ -1,5 +1,17 @@
 # Movie Player Lite Version History
 
+## [v1.7.1] - 2026-11-13 (CJK Text Rendering Fix, Japanese Language)
+### Fixed
+- **Broken Chinese/Japanese Characters (□)**:
+  - On Windows setups where the Chinese or Japanese fonts are present but not registered (e.g. Korean Windows), characters missing from the system UI font were drawn as empty boxes.
+  - The app now loads those font files directly and puts the font of the current UI language first, with the other languages' fonts as fallbacks. No Windows language pack is needed.
+
+### Added
+- **Japanese (日本語)**: UI translation (`locales/ja-JP.json`), installer wizard language, and `README.ja.md`.
+- **Per-Language Fonts**: each locale file can name its fonts in `_meta.fonts`.
+
+---
+
 ## [v1.7.0] - 2026-11-13 (Multi-Language UI, YouTube Playback, Installer, Hotkey Search & Menu Shortcut Hints)
 ### Added
 - **Multi-Language UI (6 languages)**:

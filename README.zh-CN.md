@@ -1,6 +1,6 @@
 # 🎬 Movie Player Lite
 
-[English](README.md) | [한국어](README.ko.md) | **简体中文** | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
+[English](README.md) | [한국어](README.ko.md) | **简体中文** | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
 
 一款免费的 Windows 视频播放器，可以**瞬间无损地剪下你需要的那一段**。
 
@@ -38,7 +38,7 @@
 - **在画面上绘图** — 画笔痕迹稍后会自动消失，讲解时很方便。
 - **用 YouTube 地址播放** — 第一次直接在线播放，之后播放已保存的文件。
 - **播放速度、缩放与移动、逐帧移动、播放列表**
-- **6 种语言** — 한국어、English、简体中文、Español、Português、Deutsch
+- **7 种语言** — 한국어、English、简体中文、日本語、Español、Português、Deutsch
 
 ---
 
@@ -89,6 +89,7 @@
 ## 🌐 更改语言
 
 在“设置”→“语言”中选择。选择后程序会重新启动并立即生效。初次使用时跟随 Windows 的语言。
+显示其他语言的文字不需要另外安装 Windows 语言包。
 
 ---
 

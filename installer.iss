@@ -45,6 +45,7 @@ ChangesAssociations=yes
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
+Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
 Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "brazilianportuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -62,6 +63,12 @@ korean.VideoTypeName=Movie Player Lite 동영상
 korean.ExtrasGroup=추가 옵션:
 korean.FfmpegDownloadFailed=FFmpeg를 내려받지 못했습니다. 설치는 계속되며, FFmpeg는 나중에 직접 설치할 수 있습니다.%n%n%1
 korean.FfmpegInstallFailed=내려받은 FFmpeg를 설치하지 못했습니다. 설치는 계속되며, FFmpeg는 나중에 직접 설치할 수 있습니다.%n%n%1
+japanese.FfmpegTask=最新の FFmpeg をダウンロード（カットと YouTube 動画の保存に必要、約 110 MB）
+japanese.AssocGroup=次の種類のファイルを Movie Player Lite で既定で再生:
+japanese.VideoTypeName=Movie Player Lite 動画
+japanese.ExtrasGroup=追加オプション:
+japanese.FfmpegDownloadFailed=FFmpeg をダウンロードできませんでした。インストールは続行されます。FFmpeg は後から手動でインストールできます。%n%n%1
+japanese.FfmpegInstallFailed=ダウンロードした FFmpeg をインストールできませんでした。インストールは続行されます。FFmpeg は後から手動でインストールできます。%n%n%1
 german.FfmpegTask=Neuestes FFmpeg herunterladen (für Schnitt und YouTube-Speicherung erforderlich, ca. 110 MB)
 german.AssocGroup=Diese Dateitypen standardmäßig mit Movie Player Lite abspielen:
 german.VideoTypeName=Movie Player Lite-Video

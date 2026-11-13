@@ -1,6 +1,6 @@
 # 🎬 Movie Player Lite
 
-[English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | **Deutsch**
+[English](README.md) | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | **Deutsch**
 
 Ein kostenloser Videoplayer für Windows, mit dem du **genau den benötigten Abschnitt sofort und ohne Qualitätsverlust herausschneiden** kannst.
 
@@ -37,7 +37,7 @@ Ein kostenloser Videoplayer für Windows, mit dem du **genau den benötigten Abs
 - **Auf dem Video zeichnen** — Striche verschwinden nach einem Moment; praktisch beim Erklären.
 - **Wiedergabe über eine YouTube-Adresse** — beim ersten Mal wird sofort gestreamt, danach wird die gespeicherte Datei abgespielt.
 - **Wiedergabegeschwindigkeit, Zoomen und Verschieben, bildweises Springen, Wiedergabeliste**
-- **Sechs Sprachen** — 한국어, English, 简体中文, Español, Português, Deutsch
+- **Sieben Sprachen** — 한국어, English, 简体中文, 日本語, Español, Português, Deutsch
 
 ---
 
@@ -88,6 +88,7 @@ Alle Tastenkürzel lassen sich unter `Einstellungen` → `Tastenkürzel` durchsu
 ## 🌐 Sprache ändern
 
 Wähle sie unter `Einstellungen` → `Sprache`. Das Programm startet neu und übernimmt sie sofort. Anfangs richtet es sich nach der Windows-Sprache.
+Um andere Sprachen anzuzeigen, muss kein Windows-Sprachpaket installiert werden.
 
 ---
 

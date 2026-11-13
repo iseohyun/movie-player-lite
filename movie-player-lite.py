@@ -9,6 +9,7 @@ from src.utils.logger import setup_logging, APP_DIR
 from src.ui.main_window import VideoCutterApp, send_to_running_instance
 from src.core.lock_resolver import terminate_zombie_same_name_processes
 from src.core import i18n
+from src.ui.fonts import apply_ui_font
 
 setup_logging()
 
@@ -40,6 +41,7 @@ def main():
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(True)
         install_qt_translator(app)
+        apply_ui_font(app)
 
         # 이미 실행 중인 프로세스가 있으면 파일 경로 전달 후 즉시 종료
         if send_to_running_instance(sys.argv[1:]):

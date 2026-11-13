@@ -1,7 +1,10 @@
 {
   "_meta": {
     "name": "한국어",
-    "code": "ko-KR"
+    "code": "ko-KR",
+    "fonts": [
+      "Malgun Gothic"
+    ]
   },
   "common.confirm": "확인",
   "common.warning": "경고",

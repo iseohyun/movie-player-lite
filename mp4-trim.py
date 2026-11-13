@@ -9,6 +9,7 @@ from src.utils.logger import setup_logging, APP_DIR
 from src.ui.main_window import VideoCutterApp, send_to_running_instance
 from src.core.lock_resolver import terminate_zombie_same_name_processes
 from src.core import i18n
+from src.ui.fonts import apply_ui_font
 
 setup_logging()
 
@@ -40,6 +41,7 @@ def main():
         app = QApplication(sys.argv)
         app.setQuitOnLastWindowClosed(True)
         install_qt_translator(app)
+        apply_ui_font(app)
 
         if send_to_running_instance(sys.argv[1:]):
             sys.exit(0)

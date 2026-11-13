@@ -1,7 +1,10 @@
 {
   "_meta": {
     "name": "Deutsch",
-    "code": "de-DE"
+    "code": "de-DE",
+    "fonts": [
+      "Segoe UI"
+    ]
   },
   "common.confirm": "Bestätigen",
   "common.warning": "Warnung",

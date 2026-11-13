@@ -85,6 +85,13 @@ def language_display_name(code: str) -> str:
     return code
 
 
+def language_fonts(code: str = None) -> list:
+    """해당 언어 글자를 온전히 표시하는 글꼴 이름 목록 (번역 파일의 _meta.fonts, 없으면 빈 목록)."""
+    meta = _load_catalogs().get(code or current_language(), {}).get(META_KEY)
+    fonts = meta.get("fonts") if isinstance(meta, dict) else None
+    return [f for f in fonts if isinstance(f, str)] if isinstance(fonts, list) else []
+
+
 def _match_language(candidate: str):
     """'ko_KR', 'zh-Hans-CN', 'es-MX' 같은 표기를 설치된 언어코드로 대응시킨다."""
     if not candidate:

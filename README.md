@@ -1,6 +1,6 @@
 # 🎬 Movie Player Lite
 
-**English** | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
+**English** | [한국어](README.ko.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
 
 A free video player for Windows that lets you **cut out just the part you need, instantly and with no loss of quality**.
 
@@ -37,7 +37,7 @@ A free video player for Windows that lets you **cut out just the part you need, 
 - **Draw on the video** — pen marks fade after a moment, handy while explaining something.
 - **Play from a YouTube address** — streams right away the first time, then plays the saved file afterwards.
 - **Playback speed, zoom and pan, frame-by-frame stepping, playlist**
-- **Six languages** — 한국어, English, 简体中文, Español, Português, Deutsch
+- **Seven languages** — 한국어, English, 简体中文, 日本語, Español, Português, Deutsch
 
 ---
 
@@ -88,6 +88,7 @@ Every shortcut can be searched and changed in `Settings` → `Shortcuts`.
 ## 🌐 Changing the language
 
 Choose it in `Settings` → `Language`. The program restarts and applies it right away. At first it follows your Windows language.
+You do not need to add a Windows language pack to display other languages.
 
 ---
 

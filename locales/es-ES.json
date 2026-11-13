@@ -1,7 +1,10 @@
 {
   "_meta": {
     "name": "Español",
-    "code": "es-ES"
+    "code": "es-ES",
+    "fonts": [
+      "Segoe UI"
+    ]
   },
   "common.confirm": "Confirmar",
   "common.warning": "Advertencia",

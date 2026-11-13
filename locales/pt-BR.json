@@ -1,7 +1,10 @@
 {
   "_meta": {
     "name": "Português (Brasil)",
-    "code": "pt-BR"
+    "code": "pt-BR",
+    "fonts": [
+      "Segoe UI"
+    ]
   },
   "common.confirm": "Confirmar",
   "common.warning": "Aviso",

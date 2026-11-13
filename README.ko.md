@@ -1,6 +1,6 @@
 # 🎬 Movie Player Lite
 
-[English](README.md) | **한국어** | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
+[English](README.md) | **한국어** | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md) | [Português](README.pt-BR.md) | [Deutsch](README.de.md)
 
 동영상을 보다가 **필요한 구간만 화질 손실 없이 순식간에 잘라 내는** Windows용 무료 동영상 플레이어입니다.
 
@@ -37,7 +37,7 @@
 - **화면 위에 그리기** — 펜으로 표시하면 잠시 뒤 사라집니다. 설명하면서 볼 때 편합니다.
 - **유튜브 주소로 재생** — 처음에는 바로 스트리밍하고, 다음부터는 저장해 둔 파일로 재생합니다.
 - **재생 속도, 확대·이동, 한 프레임씩 이동, 재생목록**
-- **6개 언어** — 한국어, English, 简体中文, Español, Português, Deutsch
+- **7개 언어** — 한국어, English, 简体中文, 日本語, Español, Português, Deutsch
 
 ---
 
@@ -88,6 +88,7 @@
 ## 🌐 언어 바꾸기
 
 `설정` → `언어`에서 고릅니다. 고르면 프로그램이 다시 시작되면서 바로 적용됩니다. 처음에는 Windows 언어를 따릅니다.
+다른 언어의 글자를 표시하려고 Windows 언어 팩을 추가로 설치할 필요는 없습니다.
 
 ---
 
