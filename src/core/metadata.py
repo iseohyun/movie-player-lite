@@ -8,7 +8,12 @@ import ctypes.wintypes
 from datetime import datetime
 
 def get_ffmpeg_path() -> str:
-    """시스템 환경변수(PATH), 로컬/번들 디렉터리 순으로 ffmpeg 경로를 탐색합니다."""
+    """실행 파일 옆(설치 프로그램이 넣어 둔 것), 시스템 환경변수(PATH), 번들 디렉터리 순으로 ffmpeg 경로를 탐색합니다."""
+    if getattr(sys, "frozen", False):
+        installed_ffmpeg = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "ffmpeg.exe")
+        if os.path.exists(installed_ffmpeg):
+            return installed_ffmpeg
+
     system_ffmpeg = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
     if system_ffmpeg:
         return system_ffmpeg
