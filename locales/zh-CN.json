@@ -302,5 +302,17 @@
   "about.col_name": "名称",
   "about.col_version": "版本",
   "about.col_license": "许可证",
-  "about.not_found": "未找到"
+  "about.not_found": "未找到",
+  "menu.file.open_url": "打开 URL...",
+  "hotkey.open_url": "打开 YouTube URL",
+  "url.dialog_title": "打开 URL",
+  "url.dialog_prompt": "请输入 YouTube 视频地址：",
+  "url.invalid": "无法识别该 YouTube 视频地址。",
+  "url.resolving": "正在获取 YouTube 视频信息...",
+  "url.resolve_failed": "无法打开 YouTube 视频：\n{error}",
+  "url.streaming": "流式播放 ({height}p) · 正在保存到本地",
+  "url.cached_play": "正在播放已保存的本地文件",
+  "url.download_done": "已保存到本地：{name}",
+  "url.download_failed": "保存到本地失败（请查看 debug.log）",
+  "timeline.streaming": "流式播放中（无缩略图）"
 }

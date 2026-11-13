@@ -1085,12 +1085,32 @@ class EmbeddedVideoPlayer(QWidget):
                 self.video_info = None
                 self.has_video_loaded = False
 
+            self.trimming_slider.placeholder_text = None
             self.trimming_slider.set_thumbnails([])
             self.thumb_thread = ThumbnailGeneratorThread(norm_path, count=10, parent=self)
             self.thumb_thread.thumbnails_ready.connect(self.trimming_slider.set_thumbnail_files)
             self.thumb_thread.start()
             self.reset_transform()
             self.setFocus()
+
+    def load_stream(self, stream_url: str, auto_play=True):
+        """네트워크 스트림(예: 유튜브) 재생. 로컬 파일 전용 기능(썸네일 타임라인·상세 정보 HUD)은 쓰지 않는다."""
+        self.at_end_of_media = False
+        self.stop_thumbnail_thread()
+        self.media_player.stop()
+        self._close_source_device()
+        self.media_player.setSource(QUrl(stream_url))
+        self.media_player.setPlaybackRate(self.playback_rate)
+        if auto_play:
+            self.media_player.play()
+        self.video_info = None
+        self.has_video_loaded = False
+        self.video_path_cached = None
+        self.trimming_slider.placeholder_text = tr("timeline.streaming")
+        self.trimming_slider.set_thumbnails([])
+        self.trimming_slider.set_cut_history_regions([])
+        self.reset_transform()
+        self.setFocus()
 
     def is_transformed(self) -> bool:
         return self.transform_rotation != 0 or self.transform_flip_h or self.transform_flip_v

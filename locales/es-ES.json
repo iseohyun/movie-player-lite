@@ -302,5 +302,17 @@
   "about.col_name": "Nombre",
   "about.col_version": "Versión",
   "about.col_license": "Licencia",
-  "about.not_found": "No encontrado"
+  "about.not_found": "No encontrado",
+  "menu.file.open_url": "Abrir URL...",
+  "hotkey.open_url": "Abrir URL de YouTube",
+  "url.dialog_title": "Abrir URL",
+  "url.dialog_prompt": "Introduce la URL de un vídeo de YouTube:",
+  "url.invalid": "No se reconoce como URL de un vídeo de YouTube.",
+  "url.resolving": "Obteniendo información del vídeo de YouTube...",
+  "url.resolve_failed": "No se pudo abrir el vídeo de YouTube:\n{error}",
+  "url.streaming": "Streaming ({height}p) · guardando sin conexión",
+  "url.cached_play": "Reproduciendo el archivo guardado sin conexión",
+  "url.download_done": "Guardado sin conexión: {name}",
+  "url.download_failed": "Error al guardar sin conexión (ver debug.log)",
+  "timeline.streaming": "Streaming (sin miniaturas)"
 }

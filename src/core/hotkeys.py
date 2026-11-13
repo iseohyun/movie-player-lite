@@ -45,6 +45,7 @@ DEFAULT_HOTKEYS = {
     "clear_drawings": {"primary": "C", "secondary": ""},
     "undo_drawing": {"primary": "Ctrl+Z", "secondary": ""},
     "show_about": {"primary": "F1", "secondary": ""},
+    "open_url": {"primary": "Ctrl+U", "secondary": ""},
 }
 
 # 표시 이름은 번역 파일(locales/*.json)의 hotkey.<action_id> 키에서 가져온다.

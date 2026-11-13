@@ -39,6 +39,8 @@ from src.ui.widgets.player import (
 from src.ui.dialogs.key_capture import KeyCaptureDialog
 from src.ui.dialogs.about import AboutDialog
 from src.ui.widgets.hint_menu import ShortcutHintMenu, bind_hotkey_hint
+from src.ui.youtube_controller import YouTubeController
+from src.core import youtube
 
 SINGLE_INSTANCE_SERVER_NAME = "MoviePlayerLite_SingleInstance_IPC_v1"
 HOTKEYS_SCHEMA_VERSION = 3
@@ -302,6 +304,12 @@ class VideoCutterApp(QWidget):
                 QStandardPaths.StandardLocation.HomeLocation
             )
 
+        self.youtube_controller = YouTubeController(self)
+        self.youtube_controller.stream_ready.connect(self.on_youtube_stream_ready)
+        self.youtube_controller.stream_failed.connect(self.on_youtube_stream_failed)
+        self.youtube_controller.download_finished.connect(self.on_youtube_download_finished)
+        self.youtube_controller.download_failed.connect(self.on_youtube_download_failed)
+
         self.load_hotkeys()
         self.initUI()
         self.load_history()
@@ -316,6 +324,11 @@ class VideoCutterApp(QWidget):
                 for extra_file in valid_args[1:]:
                     self.add_file_to_playlist(extra_file, load_immediately=False, save_history=True)
                 self.open_and_play_external_file(valid_args[0])
+            else:
+                # 파일 대신 유튜브 주소가 인자로 오면 창이 뜬 뒤 바로 연다
+                url_args = [a.strip('"\'') for a in sys.argv[1:] if youtube.extract_video_id(a.strip('"\''))]
+                if url_args:
+                    QTimer.singleShot(0, lambda u=url_args[0]: self.open_youtube_url(u))
 
     def load_hotkeys(self):
         self.hotkeys_file = os.path.join(APP_DIR, "hotkeys.json")
@@ -646,9 +659,12 @@ class VideoCutterApp(QWidget):
         self.file_menu = self._add_hint_menu(self.top_menu_bar, tr("menu.file"))
         self.act_open_file = QAction(tr("menu.file.open"), self)
         self.act_open_file.triggered.connect(self.openFileDialog)
+        self.act_open_url = QAction(tr("menu.file.open_url"), self)
+        self.act_open_url.triggered.connect(self.open_url_dialog)
         self.act_show_playlist = QAction(tr("menu.file.playlist"), self)
         self.act_show_playlist.triggered.connect(lambda: self.toggle_playlist_modal())
         self.file_menu.addAction(self.act_open_file)
+        self.file_menu.addAction(self.act_open_url)
         self.file_menu.addAction(self.act_show_playlist)
 
         # 2. 재생 메뉴
@@ -906,6 +922,7 @@ class VideoCutterApp(QWidget):
 
         # 메뉴 항목 ↔ 단축키 ID 연결: 이름은 왼쪽, 현재 단축키는 오른쪽에 옅은 색으로 표시된다
         for act, hotkey_id in (
+            (self.act_open_url, "open_url"),
             (self.act_show_playlist, "toggle_playlist"),
             (self.act_speed_up, "speed_up"),
             (self.act_speed_down, "speed_down"),
@@ -2179,6 +2196,58 @@ class VideoCutterApp(QWidget):
                 self.add_file_to_playlist(f, load_immediately=False)
             self.open_and_play_external_file(files[0])
 
+    # -------------------------------------------------------------
+    # 유튜브 URL 재생: 첫 재생은 스트리밍 + 백그라운드 저장, 이후에는 저장된 파일로 재생
+    # -------------------------------------------------------------
+    def open_url_dialog(self):
+        clipboard_text = QApplication.clipboard().text().strip()
+        default_text = clipboard_text if youtube.extract_video_id(clipboard_text) else ""
+        url, ok = QInputDialog.getText(self, tr("url.dialog_title"), tr("url.dialog_prompt"), text=default_text)
+        if ok and url.strip():
+            self.open_youtube_url(url.strip())
+
+    def open_youtube_url(self, url: str):
+        video_id = youtube.extract_video_id(url)
+        if not video_id:
+            QMessageBox.warning(self, tr("common.warning"), tr("url.invalid"))
+            return
+        cached_path = youtube.find_cached_file(video_id)
+        if cached_path:
+            self.open_and_play_external_file(cached_path)
+            self.show_toast(tr("url.cached_play"))
+            return
+        self.show_toast(tr("url.resolving"))
+        self.youtube_controller.resolve(url)
+
+    def on_youtube_stream_ready(self, info: dict):
+        # 스트림은 로컬 파일이 아니므로 파일 입력란을 비워 컷팅·저장 기능이 이전 파일을 건드리지 않게 한다
+        self.fileInput.blockSignals(True)
+        self.fileInput.setText("")
+        self.fileInput.blockSignals(False)
+        self.playlist_widget.clearSelection()
+        self.setWindowTitle(info["title"])
+        self.player_widget.load_stream(info["stream_url"], auto_play=True)
+        slider = self.player_widget.trimming_slider
+        if info["duration_ms"] > 0:
+            slider.set_duration(info["duration_ms"])
+            slider.set_start_ms(0)
+            slider.set_end_ms(info["duration_ms"])
+        self.reset_cut_button_state()
+        self.update_output_play_btn_state()
+        self.show_toast(tr("url.streaming", height=info["height"]))
+        self.youtube_controller.download(info["id"], info["url"])
+
+    def on_youtube_stream_failed(self, message: str):
+        QMessageBox.warning(self, tr("common.warning"), tr("url.resolve_failed", error=message))
+
+    def on_youtube_download_finished(self, video_id: str, file_path: str):
+        self.add_file_to_playlist(file_path, load_immediately=False, save_history=True)
+        self.show_toast(tr("url.download_done", name=os.path.basename(file_path)))
+
+    def on_youtube_download_failed(self, video_id: str, message: str):
+        logging.error(f"YouTube offline save failed ({video_id}): {message}")
+        self.show_toast(tr("url.download_failed"))
+
     def on_file_changed(self, text):
         self.is_loading_file = True
         auto_play = getattr(self, '_auto_play_next_load', False)
@@ -2865,6 +2934,8 @@ class VideoCutterApp(QWidget):
             self.player_widget.undo_last_drawing()
         elif matched_action == "show_about":
             self.show_about_dialog()
+        elif matched_action == "open_url":
+            self.open_url_dialog()
         else:
             super().keyPressEvent(event)
 
@@ -3148,6 +3219,8 @@ class VideoCutterApp(QWidget):
         try:
             if hasattr(self, 'fs_sync_timer') and self.fs_sync_timer:
                 self.fs_sync_timer.stop()
+            if hasattr(self, 'youtube_controller') and self.youtube_controller:
+                self.youtube_controller.shutdown()
             if hasattr(self, 'local_server') and self.local_server:
                 self.local_server.close()
                 QLocalServer.removeServer(SINGLE_INSTANCE_SERVER_NAME)

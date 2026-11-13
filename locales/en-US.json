@@ -302,5 +302,17 @@
   "about.col_name": "Name",
   "about.col_version": "Version",
   "about.col_license": "License",
-  "about.not_found": "Not found"
+  "about.not_found": "Not found",
+  "menu.file.open_url": "Open URL...",
+  "hotkey.open_url": "Open YouTube URL",
+  "url.dialog_title": "Open URL",
+  "url.dialog_prompt": "Enter a YouTube video URL:",
+  "url.invalid": "This is not a recognizable YouTube video URL.",
+  "url.resolving": "Fetching YouTube video info...",
+  "url.resolve_failed": "Could not open the YouTube video:\n{error}",
+  "url.streaming": "Streaming ({height}p) · saving for offline",
+  "url.cached_play": "Playing the saved offline file",
+  "url.download_done": "Saved for offline: {name}",
+  "url.download_failed": "Offline save failed (see debug.log)",
+  "timeline.streaming": "Streaming (no thumbnails)"
 }

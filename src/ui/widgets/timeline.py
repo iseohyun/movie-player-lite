@@ -324,7 +324,7 @@ class TrimmingSliderWidget(QWidget):
         else:
             painter.fillRect(QRectF(0, 0, w, h), QColor(17, 17, 17))
             painter.setPen(QColor(128, 128, 128))
-            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, tr("timeline.loading"))
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, getattr(self, "placeholder_text", None) or tr("timeline.loading"))
 
         sx = self.ms_to_x(self.start_ms)
         ex = self.ms_to_x(self.end_ms)

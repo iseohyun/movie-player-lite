@@ -25,6 +25,14 @@ def _package_version(dist_name: str) -> str:
         return UNKNOWN_VERSION
 
 
+def _yt_dlp_version() -> str:
+    try:
+        from yt_dlp.version import __version__
+        return __version__
+    except Exception:
+        return UNKNOWN_VERSION
+
+
 def _ffmpeg_version_and_license():
     """실제로 사용 중인 ffmpeg 실행 파일에서 버전과 빌드 라이선스(LGPL/GPL)를 읽는다."""
     try:
@@ -58,6 +66,7 @@ def collect_open_source_components():
         ("PyQt6", PYQT_VERSION_STR, "GPL v3"),
         ("PyQt6-sip", _package_version("PyQt6-sip"), "BSD 2-Clause"),
         ("FFmpeg", ffmpeg_version, ffmpeg_license),
+        ("yt-dlp", _yt_dlp_version(), "Unlicense"),
         ("PyInstaller", _package_version("pyinstaller"), "GPL v2+ (bootloader exception)"),
     ]
 
@@ -69,7 +78,7 @@ class AboutDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(tr("about.title"))
         self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
-        self.resize(520, 360)
+        self.resize(520, 390)
         self.setStyleSheet("""
             QDialog { background-color: #252526; color: #ffffff; }
             QLabel { color: #ffffff; }

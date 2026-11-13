@@ -302,5 +302,17 @@
   "about.col_name": "이름",
   "about.col_version": "버전",
   "about.col_license": "라이선스",
-  "about.not_found": "찾을 수 없음"
+  "about.not_found": "찾을 수 없음",
+  "menu.file.open_url": "URL 열기...",
+  "hotkey.open_url": "유튜브 URL 열기",
+  "url.dialog_title": "URL 열기",
+  "url.dialog_prompt": "유튜브 동영상 주소를 입력하세요:",
+  "url.invalid": "유튜브 동영상 주소를 인식할 수 없습니다.",
+  "url.resolving": "유튜브 영상 정보를 가져오는 중...",
+  "url.resolve_failed": "유튜브 영상을 열 수 없습니다:\n{error}",
+  "url.streaming": "스트리밍 재생 ({height}p) · 오프라인 저장 중",
+  "url.cached_play": "저장된 오프라인 파일로 재생합니다",
+  "url.download_done": "오프라인 저장 완료: {name}",
+  "url.download_failed": "오프라인 저장에 실패했습니다 (debug.log 참고)",
+  "timeline.streaming": "스트리밍 재생 중 (썸네일 없음)"
 }

@@ -302,5 +302,17 @@
   "about.col_name": "Nome",
   "about.col_version": "Versão",
   "about.col_license": "Licença",
-  "about.not_found": "Não encontrado"
+  "about.not_found": "Não encontrado",
+  "menu.file.open_url": "Abrir URL...",
+  "hotkey.open_url": "Abrir URL do YouTube",
+  "url.dialog_title": "Abrir URL",
+  "url.dialog_prompt": "Digite a URL de um vídeo do YouTube:",
+  "url.invalid": "Não foi possível reconhecer a URL do vídeo do YouTube.",
+  "url.resolving": "Obtendo informações do vídeo do YouTube...",
+  "url.resolve_failed": "Não foi possível abrir o vídeo do YouTube:\n{error}",
+  "url.streaming": "Streaming ({height}p) · salvando para uso offline",
+  "url.cached_play": "Reproduzindo o arquivo offline salvo",
+  "url.download_done": "Salvo para uso offline: {name}",
+  "url.download_failed": "Falha ao salvar offline (veja debug.log)",
+  "timeline.streaming": "Streaming (sem miniaturas)"
 }

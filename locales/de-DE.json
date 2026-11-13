@@ -302,5 +302,17 @@
   "about.col_name": "Name",
   "about.col_version": "Version",
   "about.col_license": "Lizenz",
-  "about.not_found": "Nicht gefunden"
+  "about.not_found": "Nicht gefunden",
+  "menu.file.open_url": "URL öffnen...",
+  "hotkey.open_url": "YouTube-URL öffnen",
+  "url.dialog_title": "URL öffnen",
+  "url.dialog_prompt": "YouTube-Video-URL eingeben:",
+  "url.invalid": "Die Adresse wurde nicht als YouTube-Video-URL erkannt.",
+  "url.resolving": "YouTube-Videoinformationen werden abgerufen...",
+  "url.resolve_failed": "Das YouTube-Video konnte nicht geöffnet werden:\n{error}",
+  "url.streaming": "Streaming ({height}p) · wird offline gespeichert",
+  "url.cached_play": "Gespeicherte Offline-Datei wird abgespielt",
+  "url.download_done": "Offline gespeichert: {name}",
+  "url.download_failed": "Offline-Speicherung fehlgeschlagen (siehe debug.log)",
+  "timeline.streaming": "Streaming (keine Vorschaubilder)"
 }
