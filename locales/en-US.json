@@ -317,5 +317,14 @@
   "url.cached_play": "Playing the saved offline file",
   "url.download_done": "Saved for offline: {name}",
   "url.download_failed": "Offline save failed (see debug.log)",
-  "timeline.streaming": "Streaming (no thumbnails)"
+  "timeline.streaming": "Streaming (no thumbnails)",
+  "menu.settings.check_update": "Check for Updates...",
+  "about.check_update": "Check for Updates",
+  "update.title": "Check for Updates",
+  "update.checking": "Checking for updates...",
+  "update.up_to_date": "You are using the latest version (v{version}).",
+  "update.available_local": "New changes detected in the local repository.\n\nCurrent: v{current}\nTarget: v{latest}\nDetail: {detail}\n\nBuild and install the update now and restart the app?",
+  "update.available_github": "A new version is available on GitHub.\n\nCurrent: v{current}\nLatest: v{latest}\nNotes: {detail}\n\nDownload and install the update now and restart the app?",
+  "update.installing": "Preparing and installing update... Please wait.",
+  "update.failed": "Update failed:\n{error}"
 }

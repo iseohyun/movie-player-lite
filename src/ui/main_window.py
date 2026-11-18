@@ -21,7 +21,8 @@ from src.utils.logger import APP_DIR
 from src.utils.time_utils import ms_to_time_str
 from src.core.metadata import (
     get_ffmpeg_path, get_unique_filename, show_file_properties,
-    open_source_file_dir, get_media_creation_time_and_duration
+    open_source_file_dir, get_media_creation_time_and_duration,
+    MEDIA_EXTS, is_audio_file
 )
 from src.core.hotkeys import DEFAULT_HOTKEYS, event_to_key_str
 from src.core import i18n
@@ -38,6 +39,7 @@ from src.ui.widgets.player import (
 )
 from src.ui.dialogs.key_capture import KeyCaptureDialog
 from src.ui.dialogs.about import AboutDialog
+from src.core.updater import UpdateCheckThread, UpdateInstallThread, spawn_update_and_relaunch
 from src.ui.widgets.hint_menu import ShortcutHintMenu, bind_hotkey_hint
 from src.ui.youtube_controller import YouTubeController
 from src.core import youtube
@@ -310,6 +312,9 @@ class VideoCutterApp(QWidget):
         self.youtube_controller.download_finished.connect(self.on_youtube_download_finished)
         self.youtube_controller.download_failed.connect(self.on_youtube_download_failed)
 
+        self.update_check_thread = None
+        self.update_install_thread = None
+
         self.load_hotkeys()
         self.initUI()
         self.load_history()
@@ -317,6 +322,9 @@ class VideoCutterApp(QWidget):
         self.load_playlist_history()
         self.init_single_instance_server()
         self.init_external_file_watcher()
+
+        if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
+            QTimer.singleShot(1800, lambda: self.check_for_updates_ui(silent_if_latest=True))
 
         if len(sys.argv) > 1:
             valid_args = [a.strip('"\'') for a in sys.argv[1:] if os.path.isfile(a.strip('"\''))]
@@ -828,8 +836,11 @@ class VideoCutterApp(QWidget):
             if lang_code == i18n.SYSTEM_LANGUAGE:
                 self.language_menu.addSeparator()
 
-        # 4-2. 프로그램 정보
+        # 4-2. 업데이트 확인 및 프로그램 정보
         self.settings_menu.addSeparator()
+        self.act_check_update = QAction(tr("menu.settings.check_update"), self)
+        self.act_check_update.triggered.connect(lambda: self.check_for_updates_ui(silent_if_latest=False))
+        self.settings_menu.addAction(self.act_check_update)
         self.act_show_about = QAction(tr("menu.settings.about"), self)
         self.act_show_about.triggered.connect(self.show_about_dialog)
         self.settings_menu.addAction(self.act_show_about)
@@ -1089,6 +1100,96 @@ class VideoCutterApp(QWidget):
 
     def show_about_dialog(self):
         AboutDialog(self).exec()
+
+    def check_for_updates_ui(self, silent_if_latest: bool = False):
+        if self.update_check_thread and self.update_check_thread.isRunning():
+            if not silent_if_latest:
+                self.show_toast(tr("update.checking"))
+            return
+        self._update_check_silent = bool(silent_if_latest)
+        if not silent_if_latest:
+            self.show_toast(tr("update.checking"))
+        self.update_check_thread = UpdateCheckThread(parent=self)
+        self.update_check_thread.check_finished.connect(self._on_update_check_finished)
+        self.update_check_thread.start()
+
+    def _on_update_check_finished(self, info: dict):
+        silent = getattr(self, "_update_check_silent", False)
+        if not info or not info.get("available"):
+            if not silent:
+                cur_ver = (info or {}).get("current_version", "")
+                QMessageBox.information(
+                    self,
+                    tr("update.title"),
+                    tr("update.up_to_date", version=cur_ver),
+                )
+            return
+
+        source = info.get("source", "")
+        cur_ver = info.get("current_version", "")
+        latest_ver = info.get("latest_version", cur_ver)
+        summary = info.get("summary", "")
+
+        if source in ("local_source", "local_build", "git_remote"):
+            msg = tr(
+                "update.available_local",
+                current=cur_ver,
+                latest=latest_ver,
+                detail=summary or source,
+            )
+        else:
+            msg = tr(
+                "update.available_github",
+                current=cur_ver,
+                latest=latest_ver,
+                detail=summary or f"v{latest_ver}",
+            )
+
+        res = QMessageBox.question(
+            self,
+            tr("update.title"),
+            msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if res == QMessageBox.StandardButton.Yes:
+            self.run_update_install(info)
+
+    def run_update_install(self, info: dict):
+        if self.update_install_thread and self.update_install_thread.isRunning():
+            return
+        self.show_toast(tr("update.installing"))
+        self.update_install_thread = UpdateInstallThread(info, parent=self)
+        self.update_install_thread.progress_text.connect(lambda txt: self.show_toast(txt))
+        self.update_install_thread.install_finished.connect(self._on_update_install_finished)
+        self.update_install_thread.start()
+
+    def _on_update_install_finished(self, result: dict):
+        if not result or not result.get("success"):
+            err = (result or {}).get("error", "Unknown error")
+            QMessageBox.warning(
+                self,
+                tr("update.title"),
+                tr("update.failed", error=err),
+            )
+            return
+
+        mode = result.get("mode", "")
+        if mode == "browser":
+            import webbrowser
+            webbrowser.open(result.get("html_url", "https://github.com/iseohyun/movie-player-lite/releases"))
+            return
+
+        current_file = self.fileInput.text().strip() if hasattr(self, "fileInput") else ""
+        if spawn_update_and_relaunch(result, current_media_path=current_file):
+            self.close()
+            QApplication.quit()
+        else:
+            QMessageBox.warning(
+                self,
+                tr("update.title"),
+                tr("update.failed", error="Installer launch failed"),
+            )
 
     def show_player_context_menu(self, global_pos: QPoint):
         ctx = QMenu(self)
@@ -1993,12 +2094,14 @@ class VideoCutterApp(QWidget):
         if not self.player_widget.has_video_loaded or not self.fileInput.text().strip():
             QMessageBox.warning(self, tr("common.warning"), tr("transform.no_source"))
             return
-            
+
+        source_file = self.fileInput.text().strip()
+        if is_audio_file(source_file):
+            return
+
         if not self.player_widget.is_transformed():
             self.capture_current_frame()
             return
-
-        source_file = self.fileInput.text().strip()
         default_dir = self.dirInput.text().strip() or os.path.dirname(source_file)
         default_name = self.get_clean_output_name()
         
@@ -2179,7 +2282,7 @@ class VideoCutterApp(QWidget):
         first = None
         for u in urls:
             f = u.toLocalFile()
-            if os.path.isfile(f) and f.lower().endswith(('.mp4', '.mkv', '.mov', '.avi', '.webm')):
+            if os.path.isfile(f) and f.lower().endswith(MEDIA_EXTS):
                 self.add_file_to_playlist(f, load_immediately=False)
                 if not first:
                     first = f
@@ -2189,7 +2292,7 @@ class VideoCutterApp(QWidget):
     def openFileDialog(self):
         start_dir = self.get_active_working_dir()
         files, _ = QFileDialog.getOpenFileNames(
-            self, tr("dialog.select_video"), start_dir, tr("dialog.video_filter") + " (*.mp4 *.mkv *.mov *.avi *.webm)"
+            self, tr("dialog.select_video"), start_dir, tr("dialog.video_filter") + " (*.mp4 *.mkv *.mov *.avi *.webm *.mp3)"
         )
         if files:
             for f in files:
@@ -2280,8 +2383,8 @@ class VideoCutterApp(QWidget):
                     self.player_widget.trimming_slider.set_end_ms(duration_ms)
 
                     base_name = os.path.basename(text)
-                    if base_name.lower().endswith(".mp4"):
-                        base_name = base_name[:-4]
+                    if base_name.lower().endswith((".mp4", ".mp3", ".mkv", ".mov", ".avi", ".webm")):
+                        base_name = os.path.splitext(base_name)[0]
                     self.nameInput.setText(base_name)
 
                     self.check_target_file_exists()
@@ -2424,16 +2527,20 @@ class VideoCutterApp(QWidget):
         if start_cs > end_cs:
             self.endInput.setText(self.startInput.displayText())
 
+    def get_target_output_ext(self) -> str:
+        src = self.fileInput.text().strip() if hasattr(self, 'fileInput') else ""
+        return ".mp3" if is_audio_file(src) else ".mp4"
+
     def get_clean_output_name(self) -> str:
         txt = self.nameInput.text().strip()
-        if txt.lower().endswith(".mp4"):
+        if txt.lower().endswith((".mp4", ".mp3")):
             txt = txt[:-4].strip()
         return txt if txt else "output"
 
     def get_full_output_path(self) -> str:
         out_dir = self.dirInput.text().strip()
         clean_name = self.get_clean_output_name()
-        return os.path.join(out_dir, clean_name + ".mp4").replace('\\', '/')
+        return os.path.join(out_dir, clean_name + self.get_target_output_ext()).replace('\\', '/')
 
     def check_target_file_exists(self):
         if hasattr(self, 'is_loading_history') and self.is_loading_history:
@@ -2480,7 +2587,8 @@ class VideoCutterApp(QWidget):
         start_time = self.startInput.displayText()
         end_time = self.endInput.displayText()
         clean_name = self.get_clean_output_name()
-        out_name = clean_name + ".mp4"
+        target_ext = self.get_target_output_ext()
+        out_name = clean_name + target_ext
         out_dir = self.dirInput.text().strip()
 
         if not video_in or not out_dir:
@@ -2509,7 +2617,7 @@ class VideoCutterApp(QWidget):
         if self.autoNumberCheck.isChecked():
             video_out = get_unique_filename(video_out)
             final_name = os.path.basename(video_out)
-            if final_name.lower().endswith(".mp4"):
+            if final_name.lower().endswith((".mp4", ".mp3")):
                 final_name = final_name[:-4]
             self.nameInput.blockSignals(True)
             self.nameInput.setText(final_name)
@@ -2531,7 +2639,9 @@ class VideoCutterApp(QWidget):
             "-t", dur_str,
         ]
 
-        if self.muteCheck.isChecked():
+        if is_audio_file(video_in):
+            cmd.extend(["-vn", "-c:a", "copy"])
+        elif self.muteCheck.isChecked():
             cmd.extend(["-c:v", "copy", "-an"])
         else:
             cmd.extend(["-c:v", "copy", "-c:a", "copy"])
@@ -2663,7 +2773,7 @@ class VideoCutterApp(QWidget):
         QTimer.singleShot(350, apply_trim_bounds)
 
         raw_out_name = task.get('out_name', '')
-        if raw_out_name.lower().endswith(".mp4"):
+        if raw_out_name.lower().endswith((".mp4", ".mp3")):
             raw_out_name = raw_out_name[:-4]
         self.nameInput.setText(raw_out_name)
 
@@ -2695,7 +2805,7 @@ class VideoCutterApp(QWidget):
         start_time = self.startInput.displayText()
         end_time = self.endInput.displayText()
         clean_name = self.get_clean_output_name()
-        out_name = clean_name + ".mp4"
+        out_name = clean_name + self.get_target_output_ext()
         out_dir = self.dirInput.text().strip()
         
         if self.radioSame.isChecked():

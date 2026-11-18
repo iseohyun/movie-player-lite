@@ -317,5 +317,14 @@
   "url.cached_play": "저장된 오프라인 파일로 재생합니다",
   "url.download_done": "오프라인 저장 완료: {name}",
   "url.download_failed": "오프라인 저장에 실패했습니다 (debug.log 참고)",
-  "timeline.streaming": "스트리밍 재생 중 (썸네일 없음)"
+  "timeline.streaming": "스트리밍 재생 중 (썸네일 없음)",
+  "menu.settings.check_update": "업데이트 확인...",
+  "about.check_update": "업데이트 확인",
+  "update.title": "업데이트 확인",
+  "update.checking": "업데이트를 확인하는 중...",
+  "update.up_to_date": "현재 최신 버전(v{version})을 사용 중입니다.",
+  "update.available_local": "로컬 저장소에 새로운 변경사항이 감지되었습니다.\n\n현재 버전: v{current}\n업데이트 버전: v{latest}\n변경 내역: {detail}\n\n지금 빌드 및 업데이트를 진행하고 앱을 다시 시작하시겠습니까?",
+  "update.available_github": "GitHub에 새로운 버전이 출시되었습니다.\n\n현재 버전: v{current}\n최신 버전: v{latest}\n내용: {detail}\n\n지금 다운로드하여 업데이트하고 앱을 다시 시작하시겠습니까?",
+  "update.installing": "업데이트 준비 및 설치 중... 잠시만 기다려 주세요.",
+  "update.failed": "업데이트에 실패했습니다:\n{error}"
 }

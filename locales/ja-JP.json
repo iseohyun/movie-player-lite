@@ -317,5 +317,14 @@
   "url.cached_play": "保存済みのオフラインファイルを再生します",
   "url.download_done": "オフライン保存が完了しました: {name}",
   "url.download_failed": "オフライン保存に失敗しました（debug.log を参照）",
-  "timeline.streaming": "ストリーミング再生中（サムネイルなし）"
+  "timeline.streaming": "ストリーミング再生中（サムネイルなし）",
+  "menu.settings.check_update": "アップデートを確認...",
+  "about.check_update": "アップデートを確認",
+  "update.title": "アップデートの確認",
+  "update.checking": "アップデートを確認中...",
+  "update.up_to_date": "最新バージョン (v{version}) を使用しています。",
+  "update.available_local": "ローカルリポジトリに新しい変更が検出されました。\n\n現在のバージョン: v{current}\n更新バージョン: v{latest}\n内容: {detail}\n\n今すぐビルド・更新してアプリを再起動しますか？",
+  "update.available_github": "GitHub に新しいバージョンが公開されています。\n\n現在のバージョン: v{current}\n最新バージョン: v{latest}\n内容: {detail}\n\n今すぐダウンロード・更新してアプリを再起動しますか？",
+  "update.installing": "アップデートを準備・インストール中... しばらくお待ちください。",
+  "update.failed": "アップデートに失敗しました:\n{error}"
 }

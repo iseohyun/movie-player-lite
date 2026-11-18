@@ -96,6 +96,7 @@ Name: "assoc_mkv"; Description: ".mkv"; GroupDescription: "{cm:AssocGroup}"; Fla
 Name: "assoc_mov"; Description: ".mov"; GroupDescription: "{cm:AssocGroup}"; Flags: unchecked
 Name: "assoc_avi"; Description: ".avi"; GroupDescription: "{cm:AssocGroup}"; Flags: unchecked
 Name: "assoc_webm"; Description: ".webm"; GroupDescription: "{cm:AssocGroup}"; Flags: unchecked
+Name: "assoc_mp3"; Description: ".mp3"; GroupDescription: "{cm:AssocGroup}"; Flags: unchecked
 ; Shown only when FFmpeg is missing or older than the recommended version
 Name: "ffmpeg"; Description: "{cm:FfmpegTask}"; GroupDescription: "{cm:ExtrasGroup}"; Check: NeedsFfmpeg
 
@@ -115,6 +116,7 @@ Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; Va
 Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".mov"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".avi"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".webm"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".mp3"; ValueData: ""
 ; File type shared by every extension the user ticks on the tasks page
 Root: HKCU; Subkey: "Software\Classes\{#VideoProgId}"; ValueType: string; ValueData: "{cm:VideoTypeName}"; Flags: uninsdeletekey
 Root: HKCU; Subkey: "Software\Classes\{#VideoProgId}\DefaultIcon"; ValueType: string; ValueData: "{app}\{#AppExe},0"
@@ -131,6 +133,8 @@ Root: HKCU; Subkey: "Software\Classes\.avi"; ValueType: string; ValueData: "{#Vi
 Root: HKCU; Subkey: "Software\Classes\.avi\OpenWithProgids"; ValueType: string; ValueName: "{#VideoProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assoc_avi
 Root: HKCU; Subkey: "Software\Classes\.webm"; ValueType: string; ValueData: "{#VideoProgId}"; Flags: uninsdeletevalue; Tasks: assoc_webm
 Root: HKCU; Subkey: "Software\Classes\.webm\OpenWithProgids"; ValueType: string; ValueName: "{#VideoProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assoc_webm
+Root: HKCU; Subkey: "Software\Classes\.mp3"; ValueType: string; ValueData: "{#VideoProgId}"; Flags: uninsdeletevalue; Tasks: assoc_mp3
+Root: HKCU; Subkey: "Software\Classes\.mp3\OpenWithProgids"; ValueType: string; ValueName: "{#VideoProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: assoc_mp3
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall skipifsilent

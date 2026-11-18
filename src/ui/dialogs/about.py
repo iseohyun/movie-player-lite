@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, qVersion, PYQT_VERSION_STR
 
 from src.core.metadata import get_ffmpeg_path
 from src.core.i18n import tr
+from src.core.updater import get_app_version
 
 APP_NAME = "Movie Player Lite"
 FFMPEG_QUERY_TIMEOUT_SEC = 3
@@ -92,7 +93,7 @@ class AboutDialog(QDialog):
         layout.setContentsMargins(14, 14, 14, 12)
         layout.setSpacing(8)
 
-        name_label = QLabel(APP_NAME)
+        name_label = QLabel(f"{APP_NAME} v{get_app_version()}")
         name_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2d89ef;")
         layout.addWidget(name_label)
 
@@ -124,8 +125,16 @@ class AboutDialog(QDialog):
         layout.addWidget(self.table, 1)
 
         btn_row = QHBoxLayout()
+        self.check_update_btn = QPushButton(tr("about.check_update"))
+        self.check_update_btn.clicked.connect(self._on_check_update_clicked)
+        btn_row.addWidget(self.check_update_btn)
         btn_row.addStretch()
         close_btn = QPushButton(tr("btn.close"))
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
         layout.addLayout(btn_row)
+
+    def _on_check_update_clicked(self):
+        parent = self.parent()
+        if parent and hasattr(parent, "check_for_updates_ui"):
+            parent.check_for_updates_ui(silent_if_latest=False)

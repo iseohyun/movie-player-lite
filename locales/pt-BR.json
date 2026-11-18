@@ -317,5 +317,14 @@
   "url.cached_play": "Reproduzindo o arquivo offline salvo",
   "url.download_done": "Salvo para uso offline: {name}",
   "url.download_failed": "Falha ao salvar offline (veja debug.log)",
-  "timeline.streaming": "Streaming (sem miniaturas)"
+  "timeline.streaming": "Streaming (sem miniaturas)",
+  "menu.settings.check_update": "Verificar atualizações...",
+  "about.check_update": "Verificar atualizações",
+  "update.title": "Verificar atualizações",
+  "update.checking": "Verificando atualizações...",
+  "update.up_to_date": "Você já está usando a versão mais recente (v{version}).",
+  "update.available_local": "Novas alterações detectadas no repositório local.\n\nAtual: v{current}\nNova: v{latest}\nDetalhes: {detail}\n\nCompilar e instalar a atualização agora e reiniciar o aplicativo?",
+  "update.available_github": "Uma nova versão está disponível no GitHub.\n\nAtual: v{current}\nMais recente: v{latest}\nNotas: {detail}\n\nBaixar e instalar a atualização agora e reiniciar o aplicativo?",
+  "update.installing": "Preparando e instalando atualização... Aguarde.",
+  "update.failed": "Falha na atualização:\n{error}"
 }

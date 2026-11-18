@@ -32,7 +32,7 @@ if not defined ISCC (
 )
 
 echo [1/2] Building app folder for version %APP_VERSION% ...
-python -m PyInstaller --noconfirm --name "%APP_NAME%" --noupx --onedir --noconsole --distpath dist_installer --workpath build_installer --specpath build_installer --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --hidden-import PyQt6.QtNetwork --add-data "%CD%\icon.ico;." --add-data "%CD%\locales;locales" --copy-metadata pyinstaller --copy-metadata PyQt6-sip --icon="%CD%\icon.ico" movie-player-lite.py
+python -m PyInstaller --noconfirm --name "%APP_NAME%" --noupx --onedir --noconsole --distpath dist_installer --workpath build_installer --specpath build_installer --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import PyQt6.QtMultimedia --hidden-import PyQt6.QtMultimediaWidgets --hidden-import PyQt6.QtNetwork --add-data "%CD%\icon.ico;." --add-data "%CD%\VERSION.md;." --add-data "%CD%\locales;locales" --copy-metadata pyinstaller --copy-metadata PyQt6-sip --icon="%CD%\icon.ico" movie-player-lite.py
 if errorlevel 1 (
     echo.
     echo [ERROR] App build failed. The installer was not created.

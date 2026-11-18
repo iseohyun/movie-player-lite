@@ -317,5 +317,14 @@
   "url.cached_play": "Reproduciendo el archivo guardado sin conexión",
   "url.download_done": "Guardado sin conexión: {name}",
   "url.download_failed": "Error al guardar sin conexión (ver debug.log)",
-  "timeline.streaming": "Streaming (sin miniaturas)"
+  "timeline.streaming": "Streaming (sin miniaturas)",
+  "menu.settings.check_update": "Buscar actualizaciones...",
+  "about.check_update": "Buscar actualizaciones",
+  "update.title": "Buscar actualizaciones",
+  "update.checking": "Buscando actualizaciones...",
+  "update.up_to_date": "Ya estás usando la versión más reciente (v{version}).",
+  "update.available_local": "Se detectaron nuevos cambios en el repositorio local.\n\nActual: v{current}\nDestino: v{latest}\nDetalle: {detail}\n\n¿Compilar e instalar la actualización ahora y reiniciar la aplicación?",
+  "update.available_github": "Hay una nueva versión disponible en GitHub.\n\nActual: v{current}\nÚltima: v{latest}\nNotas: {detail}\n\n¿Descargar e instalar la actualización ahora y reiniciar la aplicación?",
+  "update.installing": "Preparando e instalando actualización... Por favor, espera.",
+  "update.failed": "Error al actualizar:\n{error}"
 }

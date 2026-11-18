@@ -9,6 +9,8 @@ import src.ui.widgets.player
 src.ui.widgets.player.ThumbnailGeneratorThread.run = lambda self: None
 import src.ui.main_window
 src.ui.main_window.get_media_creation_time_and_duration = lambda p: (6000, None)
+src.ui.main_window.SINGLE_INSTANCE_SERVER_NAME = f"MoviePlayerLite_Test_IPC_{os.getpid()}"
+src.ui.main_window.UpdateCheckThread.start = lambda self: None
 
 from src.ui.main_window import VideoCutterApp
 from src.ui.widgets.timeline import TrimmingSliderWidget
@@ -479,6 +481,101 @@ def run_traceability_tests():
     req22_pass = draw_mode_on and expired_removed_and_persistent_kept and undo_ok and modal_open_ok
     print(f" -> Draw mode ON: {draw_mode_on}, Trail expire & persistent keep: {expired_removed_and_persistent_kept}, Undo: {undo_ok}, Modal: {modal_open_ok}")
     results.append(("Req 22: Video Overlay Drawing Mode & Pen Trail Settings", "PASS" if req22_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 23: MP3 Audio Support, Waveform & Non-Empty Highlight, and Silence Magnetic Snap
+    # -------------------------------------------------------------
+    print("\n[TEST 23] MP3 Audio Support, Waveform & Non-Empty Highlight, and Silence Magnetic Snap...")
+    import array
+    from src.ui.widgets.timeline import analyze_pcm_waveform_and_silence
+    from src.core.metadata import is_audio_file
+
+    # Build a 10-second synthetic 1000Hz mono 16-bit PCM signal:
+    # [0~2s: silence], [2~5s: loud tone], [5~7s: silence], [7~10s: loud tone]
+    samples = array.array("h")
+    for i in range(10000):
+        t_sec = i / 1000.0
+        if (2.0 <= t_sec < 5.0) or (7.0 <= t_sec <= 10.0):
+            samples.append(20000 if (i % 2 == 0) else -20000)
+        else:
+            samples.append(0)
+
+    peaks, silent_regions, active_regions = analyze_pcm_waveform_and_silence(samples.tobytes(), sample_rate=1000, bin_count=100)
+    waveform_detected_ok = (
+        len(peaks) == 100
+        and (0, 2000) in silent_regions
+        and (5000, 7000) in silent_regions
+        and (2000, 5000) in active_regions
+        and (7000, 10000) in active_regions
+    )
+
+    slider_mp3 = ex.player_widget.trimming_slider
+    slider_mp3.resize(500, 38)
+    slider_mp3.set_duration(10000)
+    slider_mp3.set_start_ms(0)
+    slider_mp3.set_end_ms(10000)
+    slider_mp3.set_waveform_data(peaks, silent_regions, active_regions)
+
+    # Start marker near/inside silent gap (5000~7000ms) -> snaps to silence start (5000ms)
+    snapped_start = slider_mp3.snap_marker_ms("start", 5150, x_pos=slider_mp3.ms_to_x(5150))
+    # End marker near/inside silent gap (5000~7000ms) -> snaps to silence end (7000ms)
+    snapped_end = slider_mp3.snap_marker_ms("end", 6850, x_pos=slider_mp3.ms_to_x(6850))
+    snap_ok = (snapped_start == 5000 and snapped_end == 7000)
+
+    # Verify MP3 output extension routing
+    ex.fileInput.blockSignals(True)
+    ex.fileInput.setText("C:/music/sample_track.mp3")
+    ex.fileInput.blockSignals(False)
+    mp3_ext_ok = is_audio_file("C:/music/sample_track.mp3") and ex.get_target_output_ext() == ".mp3" and ex.get_full_output_path().endswith(".mp3")
+
+    req23_pass = waveform_detected_ok and snap_ok and mp3_ext_ok
+    print(f" -> Waveform & Active/Silent regions: {waveform_detected_ok}, Start->SilenceStart({snapped_start}ms) & End->SilenceEnd({snapped_end}ms): {snap_ok}, MP3 ext: {mp3_ext_ok}")
+    results.append(("Req 23: MP3 Audio Support, Waveform & Silence Magnetic Snap", "PASS" if req23_pass else "FAIL"))
+
+    # -------------------------------------------------------------
+    # Req 24: In-App Update Detection (Local & GitHub) & UI Integration
+    # -------------------------------------------------------------
+    print("\n[TEST] Req 24: In-App Update Detection (Local & GitHub) & UI Integration")
+    from src.core.updater import (
+        parse_version, get_app_version, check_for_updates,
+        get_latest_source_mtime, find_local_repo_dir
+    )
+    from src.ui.dialogs.about import AboutDialog
+
+    ver_cmp_ok = (
+        parse_version("v1.8.0") > parse_version("1.7.1")
+        and parse_version(get_app_version()) >= (1, 7, 1)
+    )
+    local_upd_info = check_for_updates(
+        check_github=False,
+        fetch_git=False,
+        installed_mtime_override=1000.0,
+    )
+    src_mt, _ = get_latest_source_mtime(find_local_repo_dir())
+    # Even if Setup.exe finished compressing 30s after the exe was built from the same sources,
+    # any binary built AFTER src_mtime must be recognized as already up to date.
+    up_to_date_info = check_for_updates(
+        check_github=False,
+        fetch_git=False,
+        installed_mtime_override=src_mt + 5.0,
+    )
+    about_dlg = AboutDialog(ex)
+    ui_update_ok = (
+        hasattr(ex, "act_check_update")
+        and hasattr(ex, "check_for_updates_ui")
+        and hasattr(about_dlg, "check_update_btn")
+    )
+    about_dlg.close()
+
+    req24_pass = (
+        ver_cmp_ok
+        and local_upd_info.get("available") is True
+        and local_upd_info.get("source") in ("local_source", "local_build")
+        and up_to_date_info.get("available") is False
+        and ui_update_ok
+    )
+    print(f" -> Version compare: {ver_cmp_ok}, Local source update detect: {local_upd_info.get('source')}, Up-to-date check: {not up_to_date_info.get('available')}, UI integration: {ui_update_ok}")
+    results.append(("Req 24: In-App Update Detection (Local & GitHub) & UI Integration", "PASS" if req24_pass else "FAIL"))
 
     ex.player_widget.cleanup()
 

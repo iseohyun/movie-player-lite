@@ -1,4 +1,5 @@
 import os
+import array
 import tempfile
 import logging
 import subprocess
@@ -9,6 +10,195 @@ from PyQt6.QtMultimedia import QMediaPlayer
 
 from src.core.metadata import get_ffmpeg_path, get_media_creation_time_and_duration
 from src.core.i18n import tr
+
+
+def compute_active_regions_from_silence(duration_ms: int, silent_regions: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """전체 길이(duration_ms)에서 빈 구간(silent_regions)을 제외한 유음 구간(active_regions) 목록을 반환"""
+    if duration_ms <= 0:
+        return []
+    if not silent_regions:
+        return [(0, duration_ms)]
+    sorted_sil = sorted((max(0, int(s)), min(duration_ms, int(e))) for s, e in silent_regions if e > s)
+    active = []
+    cursor = 0
+    for s_start, s_end in sorted_sil:
+        if s_start > cursor:
+            active.append((cursor, s_start))
+        cursor = max(cursor, s_end)
+    if cursor < duration_ms:
+        active.append((cursor, duration_ms))
+    return active
+
+
+def analyze_pcm_waveform_and_silence(
+    pcm_bytes: bytes,
+    sample_rate: int = 1000,
+    bin_count: int = 240,
+    chunk_ms: int = 50,
+    silence_ratio: float = 0.05,
+    min_silence_ms: int = 200,
+) -> tuple[list[float], list[tuple[int, int]], list[tuple[int, int]]]:
+    """
+    16-bit signed mono PCM 바이트에서:
+    1) 타임라인 렌더링용 정규화 음파 피크 리스트 (peaks: 0.0 ~ 1.0)
+    2) 빈 구간(무음 구간) 리스트: silent_regions = [(start_ms, end_ms), ...]
+    3) 빈 구간을 제외한 유음 구간 리스트: active_regions = [(start_ms, end_ms), ...]
+    을 계산하여 반환합니다.
+    """
+    usable_len = (len(pcm_bytes) // 2) * 2
+    if usable_len <= 0 or sample_rate <= 0:
+        return [], [], []
+
+    samples = array.array("h")
+    samples.frombytes(pcm_bytes[:usable_len])
+    total_samples = len(samples)
+    if total_samples == 0:
+        return [], [], []
+
+    duration_ms = max(1, int(round(total_samples * 1000.0 / sample_rate)))
+
+    # 1. 타임라인 파형 피크 계산 (bin_count 개수)
+    actual_bins = max(16, min(bin_count, total_samples))
+    peaks = []
+    for i in range(actual_bins):
+        i0 = int(i * total_samples / actual_bins)
+        i1 = max(i0 + 1, int((i + 1) * total_samples / actual_bins))
+        seg = samples[i0:i1]
+        max_abs = max(abs(seg[0]), abs(min(seg)), abs(max(seg))) if seg else 0
+        peaks.append(min(1.0, max_abs / 32768.0))
+
+    max_peak = max(peaks) if peaks else 0.0
+    if max_peak > 1e-4:
+        peaks = [round(p / max_peak, 4) for p in peaks]
+    else:
+        peaks = [0.0 for _ in peaks]
+
+    # 2. chunk_ms 단위 무음(빈 구간) 판정
+    chunk_samples = max(1, int(round(sample_rate * (chunk_ms / 1000.0))))
+    num_chunks = max(1, (total_samples + chunk_samples - 1) // chunk_samples)
+    abs_thresh = max(160.0, (max_peak * 32768.0) * silence_ratio)
+
+    silent_flags = []
+    for c_idx in range(num_chunks):
+        c0 = c_idx * chunk_samples
+        c1 = min(total_samples, c0 + chunk_samples)
+        seg = samples[c0:c1]
+        c_max = max(abs(min(seg)), abs(max(seg))) if seg else 0
+        silent_flags.append(c_max < abs_thresh)
+
+    raw_silent = []
+    in_sil = False
+    sil_start_idx = 0
+    for idx, is_sil in enumerate(silent_flags):
+        if is_sil and not in_sil:
+            in_sil = True
+            sil_start_idx = idx
+        elif not is_sil and in_sil:
+            in_sil = False
+            s_ms = int(round(sil_start_idx * chunk_ms))
+            e_ms = min(duration_ms, int(round(idx * chunk_ms)))
+            if (e_ms - s_ms) >= min_silence_ms:
+                raw_silent.append((s_ms, e_ms))
+    if in_sil:
+        s_ms = int(round(sil_start_idx * chunk_ms))
+        e_ms = duration_ms
+        if (e_ms - s_ms) >= min_silence_ms:
+            raw_silent.append((s_ms, e_ms))
+
+    active_regions = compute_active_regions_from_silence(duration_ms, raw_silent)
+    return peaks, raw_silent, active_regions
+
+
+class AudioWaveformThread(QThread):
+    """FFmpeg를 사용해 MP3/오디오 파일의 음파형(Waveform) 및 빈 구간(무음)/유음 구간을 고속 추출하는 스레드"""
+    waveform_ready = pyqtSignal(list, list, list)  # peaks, silent_regions, active_regions
+    _active_threads = set()
+
+    def __init__(self, audio_path: str, bin_count: int = 240, parent=None):
+        super().__init__(parent)
+        self.audio_path = audio_path
+        self.bin_count = bin_count
+        self._proc = None
+        AudioWaveformThread._active_threads.add(self)
+
+    def _kill_proc(self):
+        proc = self._proc
+        if proc is not None:
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=1.0)
+            except Exception as e:
+                logging.debug(f"[WaveformThread] Proc kill error: {e}")
+            finally:
+                self._proc = None
+
+    def stop_and_kill(self):
+        self.requestInterruption()
+        self._kill_proc()
+        if self.isRunning():
+            self.wait(400)
+
+    @classmethod
+    def kill_all(cls, target_path: str = None) -> int:
+        from src.core.lock_resolver import norm_path_key
+        target_key = norm_path_key(target_path) if target_path else ""
+        killed = 0
+        for th in list(cls._active_threads):
+            try:
+                if not target_key or norm_path_key(th.audio_path) == target_key:
+                    th.stop_and_kill()
+                    killed += 1
+            except Exception:
+                pass
+        return killed
+
+    def run(self):
+        try:
+            if self.isInterruptionRequested():
+                return
+            ffmpeg_bin = get_ffmpeg_path()
+            cmd = [
+                ffmpeg_bin,
+                "-v", "error",
+                "-i", self.audio_path,
+                "-vn",
+                "-ac", "1",
+                "-ar", "1000",
+                "-f", "s16le",
+                "-"
+            ]
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            )
+            chunks = []
+            while True:
+                if self.isInterruptionRequested():
+                    self._kill_proc()
+                    return
+                data = self._proc.stdout.read(32768) if self._proc and self._proc.stdout else b""
+                if not data:
+                    break
+                chunks.append(data)
+            if self._proc:
+                self._proc.wait(timeout=1.0)
+            if self.isInterruptionRequested():
+                return
+            pcm_bytes = b"".join(chunks)
+            peaks, silent_regions, active_regions = analyze_pcm_waveform_and_silence(
+                pcm_bytes, sample_rate=1000, bin_count=self.bin_count
+            )
+            if peaks and not self.isInterruptionRequested():
+                self.waveform_ready.emit(peaks, silent_regions, active_regions)
+        except Exception as e:
+            logging.error(f"[WaveformThread] Exception: {e}", exc_info=True)
+        finally:
+            self._kill_proc()
+            AudioWaveformThread._active_threads.discard(self)
 
 class FilmstripWidget(QWidget):
     """동영상 재생 바 배경에 그려지는 대표 씬 썸네일 스트립"""
@@ -239,6 +429,10 @@ class TrimmingSliderWidget(QWidget):
         self.setMouseTracking(True)
 
         self.pixmaps = []
+        self.waveform_peaks = []
+        self.silent_regions = []
+        self.active_regions = []
+        self.snap_tolerance_px = 12.0
 
         self.duration_ms = 1000
         self.position_ms = 0
@@ -263,6 +457,54 @@ class TrimmingSliderWidget(QWidget):
     def set_thumbnails(self, pixmaps):
         self.pixmaps = pixmaps
         self.update()
+
+    def set_waveform_data(self, peaks: list, silent_regions: list = None, active_regions: list = None):
+        """오디오 음파형(peaks), 빈 구간(silent_regions), 유음 하이라이트 구간(active_regions)을 설정"""
+        self.waveform_peaks = list(peaks) if peaks else []
+        self.silent_regions = [(int(s), int(e)) for s, e in (silent_regions or []) if int(e) > int(s)]
+        if active_regions is not None:
+            self.active_regions = [(int(s), int(e)) for s, e in active_regions if int(e) > int(s)]
+        else:
+            self.active_regions = compute_active_regions_from_silence(self.duration_ms, self.silent_regions)
+        self.update()
+
+    def clear_waveform_data(self):
+        self.waveform_peaks = []
+        self.silent_regions = []
+        self.active_regions = []
+        self.update()
+
+    def snap_marker_ms(self, marker: str, raw_ms: int, x_pos: float = None) -> int:
+        """
+        빈 구간(무음 구간) 자석 스냅:
+        - 시작 막대('start')는 빈 구간의 시작지점(s_start)에 자석 스냅
+        - 끝 막대('end')는 빈 구간의 끝지점(s_end)에 자석 스냅
+        """
+        if not self.silent_regions or self.duration_ms <= 0 or self.width() <= 0:
+            return raw_ms
+        if marker not in ("start", "end"):
+            return raw_ms
+
+        cur_x = float(x_pos) if x_pos is not None else self.ms_to_x(raw_ms)
+        best_target_ms = None
+        best_dist_px = self.snap_tolerance_px + 1.0
+
+        for s_start, s_end in self.silent_regions:
+            target_ms = s_start if marker == "start" else s_end
+            target_x = self.ms_to_x(target_ms)
+            dist_px = abs(cur_x - target_x)
+
+            # 마우스가 스냅 반경(12px) 이내이거나, 화면상 좁은 빈 구간(24px 이하) 내부로 진입한 경우 즉시 스냅
+            sx1 = self.ms_to_x(s_start)
+            sx2 = self.ms_to_x(s_end)
+            in_narrow_gap = (s_start <= raw_ms <= s_end) and ((sx2 - sx1) <= self.snap_tolerance_px * 2.0)
+
+            if dist_px <= self.snap_tolerance_px or in_narrow_gap:
+                if dist_px < best_dist_px:
+                    best_dist_px = dist_px
+                    best_target_ms = target_ms
+
+        return best_target_ms if best_target_ms is not None else raw_ms
 
     def set_duration(self, dur_ms: int):
         if dur_ms > 0:
@@ -313,8 +555,53 @@ class TrimmingSliderWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 0. 배경 썸네일 타일링 그리기
-        if self.pixmaps:
+        # 0. 배경 썸네일 타일링 또는 오디오 음파형(Waveform) + 유음 구간 하이라이트 그리기
+        if self.waveform_peaks:
+            # 기본 배경 (빈 구간은 어두운 배경 유지)
+            painter.fillRect(QRectF(0, 0, w, h), QColor(15, 18, 24))
+
+            # 빈 구간을 제외한 유음 구간(active_regions) 배경 하이라이트 표시
+            active_list = self.active_regions or compute_active_regions_from_silence(self.duration_ms, self.silent_regions)
+            for a_start, a_end in active_list:
+                ax1 = self.ms_to_x(a_start)
+                ax2 = self.ms_to_x(a_end)
+                aw = max(1.0, ax2 - ax1)
+                painter.fillRect(QRectF(ax1, 0, aw, h), QColor(0, 180, 216, 58))
+                painter.setPen(QPen(QColor(0, 229, 255, 130), 1))
+                painter.drawLine(int(ax1), 0, int(ax2), 0)
+                painter.drawLine(int(ax1), int(h - 1), int(ax2), int(h - 1))
+
+            # 빈 구간(무음 구간) 경계 점선 가이드 표시
+            for s_start, s_end in self.silent_regions:
+                for bound_ms in (s_start, s_end):
+                    if 0 < bound_ms < self.duration_ms:
+                        bx = int(self.ms_to_x(bound_ms))
+                        painter.setPen(QPen(QColor(255, 255, 255, 70), 1, Qt.PenStyle.DotLine))
+                        painter.drawLine(bx, 0, bx, int(h))
+
+            # 음파형(Waveform) 막대 렌더링
+            n_bins = len(self.waveform_peaks)
+            mid_y = h / 2.0
+            max_half_h = (h * 0.42)
+            bar_step = w / float(n_bins)
+            bar_w = max(1.0, bar_step * 0.72)
+
+            for i, pk in enumerate(self.waveform_peaks):
+                bx = i * bar_step
+                bin_ms = int(((i + 0.5) / float(n_bins)) * self.duration_ms)
+                in_active = any(a_s <= bin_ms <= a_e for a_s, a_e in active_list) if active_list else (pk >= 0.05)
+                if in_active:
+                    half_bar = max(1.5, float(pk) * max_half_h)
+                    painter.fillRect(
+                        QRectF(bx, mid_y - half_bar, bar_w, half_bar * 2.0),
+                        QColor(0, 230, 180, 225),
+                    )
+                else:
+                    painter.fillRect(
+                        QRectF(bx, mid_y - 0.8, bar_w, 1.6),
+                        QColor(100, 110, 125, 90),
+                    )
+        elif self.pixmaps:
             n = len(self.pixmaps)
             tw = w / float(n)
             for i, pm in enumerate(self.pixmaps):
@@ -506,6 +793,9 @@ class TrimmingSliderWidget(QWidget):
                 if self.dragging_marker in ('start', 'end'):
                     if abs(x - px) <= 12:
                         new_ms = self.position_ms
+            elif self.dragging_marker in ('start', 'end') and self.silent_regions:
+                # 빈 구간(무음 구간) 자동 자석 스냅: 시작 막대는 빈 구간의 시작지점, 끝 막대는 빈 구간의 끝지점
+                new_ms = self.snap_marker_ms(self.dragging_marker, new_ms, x_pos=x)
 
             if self.dragging_marker == 'start':
                 self.start_ms = max(0, min(self.end_ms, new_ms))

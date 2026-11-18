@@ -317,5 +317,14 @@
   "url.cached_play": "Gespeicherte Offline-Datei wird abgespielt",
   "url.download_done": "Offline gespeichert: {name}",
   "url.download_failed": "Offline-Speicherung fehlgeschlagen (siehe debug.log)",
-  "timeline.streaming": "Streaming (keine Vorschaubilder)"
+  "timeline.streaming": "Streaming (keine Vorschaubilder)",
+  "menu.settings.check_update": "Nach Updates suchen...",
+  "about.check_update": "Nach Updates suchen",
+  "update.title": "Nach Updates suchen",
+  "update.checking": "Suche nach Updates...",
+  "update.up_to_date": "Sie verwenden bereits die neueste Version (v{version}).",
+  "update.available_local": "Neue Änderungen im lokalen Repository erkannt.\n\nAktuell: v{current}\nZielversion: v{latest}\nDetails: {detail}\n\nJetzt kompilieren, aktualisieren und die App neu starten?",
+  "update.available_github": "Eine neue Version ist auf GitHub verfügbar.\n\nAktuell: v{current}\nNeueste: v{latest}\nHinweise: {detail}\n\nJetzt herunterladen, aktualisieren und die App neu starten?",
+  "update.installing": "Update wird vorbereitet und installiert... Bitte warten.",
+  "update.failed": "Update fehlgeschlagen:\n{error}"
 }

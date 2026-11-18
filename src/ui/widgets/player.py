@@ -14,7 +14,8 @@ from PyQt6.QtMultimediaWidgets import QGraphicsVideoItem
 import time
 import math
 
-from src.ui.widgets.timeline import TrimmingSliderWidget, ThumbnailGeneratorThread
+from src.ui.widgets.timeline import TrimmingSliderWidget, ThumbnailGeneratorThread, AudioWaveformThread
+from src.core.metadata import is_audio_file
 from src.utils.time_utils import ms_to_time_str
 from src.core.i18n import tr
 
@@ -407,6 +408,19 @@ class EmbeddedVideoPlayer(QWidget):
         self.drawing_overlay = DrawingOverlayWidget(self, self.video_widget)
         self.drawing_overlay.show()
 
+        # 오디오(MP3) 재생 시 중앙 화면에 표시할 오디오 정보 카드
+        self.audio_center_label = QLabel(self.video_widget)
+        self.audio_center_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.audio_center_label.setStyleSheet(
+            "QLabel { color: #e6f1ff; background-color: rgba(20, 26, 36, 0.85); "
+            "border: 1px solid rgba(0, 229, 255, 0.35); border-radius: 12px; "
+            "padding: 18px 28px; font-size: 14px; font-weight: bold; }"
+        )
+        self.audio_center_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.audio_center_label.hide()
+        self.is_audio_only = False
+        self.waveform_thread = None
+
         # 변형 상태 표시 빨간색 배지 (저장 대기 유지)
         self.transform_badge = QLabel(self.video_widget)
         self.transform_badge.setStyleSheet(
@@ -601,6 +615,11 @@ class EmbeddedVideoPlayer(QWidget):
         if hasattr(self, 'drawing_overlay') and self.drawing_overlay and hasattr(self, 'video_widget') and self.video_widget:
             self.drawing_overlay.setGeometry(0, 0, self.video_widget.width(), self.video_widget.height())
             self.drawing_overlay.raise_()
+        if hasattr(self, 'audio_center_label') and self.audio_center_label and hasattr(self, 'video_widget') and self.video_widget:
+            self.audio_center_label.adjustSize()
+            vw, vh = self.video_widget.width(), self.video_widget.height()
+            lw, lh = self.audio_center_label.width(), self.audio_center_label.height()
+            self.audio_center_label.move(max(10, (vw - lw) // 2), max(10, (vh - lh) // 2))
         slider_h = self.trimming_slider.height() if hasattr(self, 'trimming_slider') else 38
         if hasattr(self, 'trimming_slider') and self.trimming_slider:
             self.trimming_slider.setGeometry(0, max(0, h - slider_h), w, slider_h)
@@ -1017,9 +1036,13 @@ class EmbeddedVideoPlayer(QWidget):
         return None
 
     def stop_thumbnail_thread(self):
-        """백그라운드 썸네일 추출 스레드 및 자식 ffmpeg.exe 프로세스를 즉시 종료하여 파일 점유 해제"""
+        """백그라운드 썸네일/음파 추출 스레드 및 자식 ffmpeg.exe 프로세스를 즉시 종료하여 파일 점유 해제"""
         try:
             ThumbnailGeneratorThread.kill_all()
+        except Exception:
+            pass
+        try:
+            AudioWaveformThread.kill_all()
         except Exception:
             pass
         if hasattr(self, 'thumb_thread') and self.thumb_thread:
@@ -1032,19 +1055,33 @@ class EmbeddedVideoPlayer(QWidget):
             except Exception:
                 pass
             self.thumb_thread = None
+        if hasattr(self, 'waveform_thread') and self.waveform_thread:
+            try:
+                if hasattr(self.waveform_thread, 'stop_and_kill'):
+                    self.waveform_thread.stop_and_kill()
+                elif self.waveform_thread.isRunning():
+                    self.waveform_thread.requestInterruption()
+                    self.waveform_thread.wait(300)
+            except Exception:
+                pass
+            self.waveform_thread = None
 
     def unload_video(self):
         self.stop_thumbnail_thread()
         self.media_player.stop()
         self._close_source_device()
         self.has_video_loaded = False
+        self.is_audio_only = False
         self.video_info = None
         self.video_path_cached = None
         self.at_end_of_media = False
+        if hasattr(self, 'audio_center_label') and self.audio_center_label:
+            self.audio_center_label.hide()
         if hasattr(self, 'info_overlay') and self.info_overlay:
             self.info_overlay.hide()
         if hasattr(self, 'trimming_slider') and self.trimming_slider:
             self.trimming_slider.set_duration(0)
+            self.trimming_slider.clear_waveform_data()
             self.trimming_slider.set_cut_history_regions([])
 
     def cleanup(self):
@@ -1085,17 +1122,45 @@ class EmbeddedVideoPlayer(QWidget):
                 self.video_info = None
                 self.has_video_loaded = False
 
+            self.is_audio_only = is_audio_file(norm_path)
             self.trimming_slider.placeholder_text = None
             self.trimming_slider.set_thumbnails([])
-            self.thumb_thread = ThumbnailGeneratorThread(norm_path, count=10, parent=self)
-            self.thumb_thread.thumbnails_ready.connect(self.trimming_slider.set_thumbnail_files)
-            self.thumb_thread.start()
+            self.trimming_slider.clear_waveform_data()
+
+            if self.is_audio_only:
+                if hasattr(self, 'audio_center_label') and self.audio_center_label:
+                    base_title = os.path.basename(norm_path)
+                    sub_parts = []
+                    if self.video_info:
+                        if self.video_info.get("nickname") and self.video_info.get("nickname") != "Unknown":
+                            sub_parts.append(self.video_info["nickname"])
+                        if self.video_info.get("bitrate") and self.video_info.get("bitrate") != "Unknown":
+                            sub_parts.append(self.video_info["bitrate"])
+                        if self.video_info.get("pix_fmt") and self.video_info.get("pix_fmt") != "Unknown":
+                            sub_parts.append(self.video_info["pix_fmt"])
+                    sub_line = f"<br><span style='font-size:11px; color:#8ab4f8; font-weight:normal;'>{' · '.join(sub_parts)}</span>" if sub_parts else ""
+                    self.audio_center_label.setText(f"🎵  {base_title}{sub_line}")
+                    self.audio_center_label.adjustSize()
+                    self.audio_center_label.show()
+                    self.layout_overlay_widgets()
+                self.waveform_thread = AudioWaveformThread(norm_path, parent=self)
+                self.waveform_thread.waveform_ready.connect(self.trimming_slider.set_waveform_data)
+                self.waveform_thread.start()
+            else:
+                if hasattr(self, 'audio_center_label') and self.audio_center_label:
+                    self.audio_center_label.hide()
+                self.thumb_thread = ThumbnailGeneratorThread(norm_path, count=10, parent=self)
+                self.thumb_thread.thumbnails_ready.connect(self.trimming_slider.set_thumbnail_files)
+                self.thumb_thread.start()
             self.reset_transform()
             self.setFocus()
 
     def load_stream(self, stream_url: str, auto_play=True):
         """네트워크 스트림(예: 유튜브) 재생. 로컬 파일 전용 기능(썸네일 타임라인·상세 정보 HUD)은 쓰지 않는다."""
         self.at_end_of_media = False
+        self.is_audio_only = False
+        if hasattr(self, 'audio_center_label') and self.audio_center_label:
+            self.audio_center_label.hide()
         self.stop_thumbnail_thread()
         self.media_player.stop()
         self._close_source_device()
@@ -1108,6 +1173,7 @@ class EmbeddedVideoPlayer(QWidget):
         self.video_path_cached = None
         self.trimming_slider.placeholder_text = tr("timeline.streaming")
         self.trimming_slider.set_thumbnails([])
+        self.trimming_slider.clear_waveform_data()
         self.trimming_slider.set_cut_history_regions([])
         self.reset_transform()
         self.setFocus()

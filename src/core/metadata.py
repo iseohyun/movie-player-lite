@@ -7,6 +7,16 @@ import ctypes
 import ctypes.wintypes
 from datetime import datetime
 
+VIDEO_EXTS = (".mp4", ".mkv", ".mov", ".avi", ".webm")
+AUDIO_EXTS = (".mp3",)
+MEDIA_EXTS = VIDEO_EXTS + AUDIO_EXTS
+
+
+def is_audio_file(file_path: str) -> bool:
+    if not file_path:
+        return False
+    return os.path.splitext(str(file_path))[1].lower() in AUDIO_EXTS
+
 def get_ffmpeg_path() -> str:
     """실행 파일 옆(설치 프로그램이 넣어 둔 것), 시스템 환경변수(PATH), 번들 디렉터리 순으로 ffmpeg 경로를 탐색합니다."""
     if getattr(sys, "frozen", False):
@@ -244,6 +254,20 @@ def get_detailed_video_info(video_path: str) -> dict:
                 info["bit_depth"] = "12-bit"
             else:
                 info["bit_depth"] = "8-bit"
+    else:
+        audio_stream_match = re.search(r"Stream #\d+:\d+.*Audio:\s*([^\n]+)", output)
+        if audio_stream_match:
+            aline = audio_stream_match.group(1)
+            codec_part = aline.split(",")[0].strip().upper()
+            info["nickname"] = f"Audio ({codec_part})" if codec_part else "Audio"
+            info["aspect_ratio"] = "Audio Only"
+            hz_match = re.search(r"(\d+\s*Hz)", aline, re.IGNORECASE)
+            if hz_match:
+                info["pix_fmt"] = hz_match.group(1)
+            if "stereo" in aline.lower():
+                info["bit_depth"] = "Stereo"
+            elif "mono" in aline.lower():
+                info["bit_depth"] = "Mono"
 
     # 3. Parse Metadata tags (under the first Metadata:)
     metadata_block_match = re.search(r"Metadata:\s*\n((?:\s+\w+\s+:[^\n]+\n)+)", output, re.IGNORECASE)
