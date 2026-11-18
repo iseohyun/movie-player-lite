@@ -10,7 +10,7 @@ import urllib.request
 import urllib.error
 from PyQt6.QtCore import QThread, pyqtSignal
 
-CURRENT_VERSION = "1.7.1"
+CURRENT_VERSION = "1.8.0"
 GITHUB_REPO = "iseohyun/movie-player-lite"
 GITHUB_LATEST_RELEASE_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 GITHUB_RELEASES_PAGE = f"https://github.com/{GITHUB_REPO}/releases"

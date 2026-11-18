@@ -1,5 +1,18 @@
 # Movie Player Lite Version History
 
+## [v1.8.0] - 2026-11-18 (MP3 Audio Support, In-App Update Check)
+### Added
+- **MP3 Audio Support**:
+  - Open, play and cut `.mp3` files without re-encoding (audio stream copy).
+  - Waveform timeline for audio files, with cut points that snap to silent sections.
+  - Audio info card in the center of the player; `.mp3` can be associated during setup.
+- **In-App Update Check**:
+  - Checks for a newer version on startup and from `Settings > Check for Updates` or the About dialog.
+  - On confirmation, downloads the latest installer from GitHub Releases, installs it, and restarts the app.
+- **Version Display**: the About dialog shows the app version.
+
+---
+
 ## [v1.7.1] - 2026-11-13 (CJK Text Rendering Fix, Japanese Language)
 ### Fixed
 - **Broken Chinese/Japanese Characters (□)**:
